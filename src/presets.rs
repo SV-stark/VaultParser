@@ -48,6 +48,7 @@ impl BankPreset {
                     "balance".to_string(),
                 ];
                 config.filter_only_date = true;
+                config.y_tolerance = 15.0;
             }
             Self::Canara => {
                 config.col_guides = vec![0.12, 0.48, 0.60, 0.74, 0.87];
