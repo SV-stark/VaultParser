@@ -151,7 +151,7 @@ To run the built-in unit and integration test suite:
 ```bash
 cargo test -- --nocapture
 ```
-This runs coordinate/amount parsing tests, an extraction check against the sample HDFC statement, and a full integration extraction check on the user's statement `RKS USER CHARGES bank.pdf` to verify native decryption.
+This runs coordinate/amount parsing tests, an extraction check against the sample HDFC statement, and a full integration extraction check on the user's statement `hdfc bank.pdf` to verify native decryption.
 
 ---
 
@@ -165,18 +165,18 @@ You can control the log verbosity using the `RUST_LOG` environment variable:
   ```powershell
   # Windows PowerShell
   $env:RUST_LOG="info"
-  cargo run --bin cli -- "RKS USER CHARGES bank.pdf" hdfc
+  cargo run --bin cli -- "hdfc bank.pdf" hdfc
   ```
   ```bash
   # Linux/macOS
   export RUST_LOG=info
-  cargo run --bin cli -- "RKS USER CHARGES bank.pdf" hdfc
+  cargo run --bin cli -- "hdfc bank.pdf" hdfc
   ```
 
 * **Show page-by-page word counts and layout details (debug):**
   ```powershell
   $env:RUST_LOG="debug"
-  cargo run --bin cli -- "RKS USER CHARGES bank.pdf" hdfc
+  cargo run --bin cli -- "hdfc bank.pdf" hdfc
   ```
 
 ---
