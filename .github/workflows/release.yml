@@ -1,0 +1,83 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and Release Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_suffix: linux-x64
+            archive_format: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_suffix: windows-x64
+            archive_format: zip
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_suffix: macos-x64
+            archive_format: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_suffix: macos-arm64
+            archive_format: tar.gz
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin vaultparser
+          cargo build --release --target ${{ matrix.target }} --bin cli
+
+      - name: Package Assets (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $dir_name = "vaultparser-$version-${{ matrix.asset_suffix }}"
+          New-Item -ItemType Directory -Path $dir_name
+          Copy-Item "target/${{ matrix.target }}/release/vaultparser.exe" -Destination "$dir_name/"
+          Copy-Item "target/${{ matrix.target }}/release/cli.exe" -Destination "$dir_name/"
+          Copy-Item -Recurse "static" -Destination "$dir_name/"
+          Copy-Item "README.md" -Destination "$dir_name/"
+          Copy-Item "LICENSE" -Destination "$dir_name/"
+          Compress-Archive -Path "$dir_name/*" -DestinationPath "$dir_name.zip"
+
+      - name: Package Assets (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          VERSION="${{ github.ref_name }}"
+          DIR_NAME="vaultparser-$VERSION-${{ matrix.asset_suffix }}"
+          mkdir -p "$DIR_NAME"
+          cp "target/${{ matrix.target }}/release/vaultparser" "$DIR_NAME/"
+          cp "target/${{ matrix.target }}/release/cli" "$DIR_NAME/"
+          cp -r "static" "$DIR_NAME/"
+          cp "README.md" "$DIR_NAME/"
+          cp "LICENSE" "$DIR_NAME/"
+          tar -czf "$DIR_NAME.tar.gz" "$DIR_NAME"
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vaultparser-${{ github.ref_name }}-${{ matrix.asset_suffix }}.${{ matrix.archive_format }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
