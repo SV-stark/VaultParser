@@ -86,7 +86,7 @@ cargo run --release --bin cli -- <input-pdf> <bank-preset> [output-csv]
 ### Examples:
 ```bash
 # Output HDFC statement directly to stdout
-cargo run --release --bin cli -- "RKS USER CHARGES bank.pdf" hdfc
+cargo run --release --bin cli -- "hdfc bank.pdf" hdfc
 
 # Save Union Bank statement output to statement.csv
 cargo run --release --bin cli -- "statement.pdf" union output.csv
