@@ -53,12 +53,19 @@ fn decrypt_pdf_if_needed(
     if use_decrypted {
         let decrypted_path = temp_path.with_extension("decrypted.pdf");
         let pwd = password.unwrap_or("");
-        
-        info!("PDF is encrypted or layout is unreadable. Attempting native decryption for '{}'...", temp_path.display());
+
+        info!(
+            "PDF is encrypted or layout is unreadable. Attempting native decryption for '{}'...",
+            temp_path.display()
+        );
 
         // Native lopdf decryption using load_with_password (handles empty password AES-256)
         let mut doc = lopdf::Document::load_with_password(temp_path, pwd).map_err(|e| {
-            error!("LOPDF decryption failed for PDF '{}': {:?}", temp_path.display(), e);
+            error!(
+                "LOPDF decryption failed for PDF '{}': {:?}",
+                temp_path.display(),
+                e
+            );
             ExtractorError::DecryptError(format!("Failed to load/decrypt PDF with lopdf: {:?}", e))
         })?;
 
@@ -70,11 +77,17 @@ fn decrypt_pdf_if_needed(
             error!("Failed to save decrypted PDF copy: {:?}", e);
             ExtractorError::DecryptError(format!("Failed to save decrypted PDF: {:?}", e))
         })?;
-        
-        info!("PDF successfully decrypted and saved to '{}'.", decrypted_path.display());
+
+        info!(
+            "PDF successfully decrypted and saved to '{}'.",
+            decrypted_path.display()
+        );
         Ok(decrypted_path)
     } else {
-        debug!("PDF '{}' is already unencrypted and readable directly.", temp_path.display());
+        debug!(
+            "PDF '{}' is already unencrypted and readable directly.",
+            temp_path.display()
+        );
         Ok(temp_path.to_path_buf())
     }
 }
@@ -87,15 +100,17 @@ pub fn detect_column_guides<P: AsRef<Path>>(
     y_bottom_trim: f64,
 ) -> Result<Vec<f64>, ExtractorError> {
     let path_ref = pdf_path.as_ref();
-    info!("Starting layout analysis to auto-detect columns for '{}'...", path_ref.display());
-    
+    info!(
+        "Starting layout analysis to auto-detect columns for '{}'...",
+        path_ref.display()
+    );
+
     let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
 
-    let pdf = PdfDocument::open(&processed_path)
-        .map_err(|e| {
-            error!("Failed to open PDF during layout analysis: {:?}", e);
-            ExtractorError::PdfOpenError(format!("{:?}", e))
-        })?;
+    let pdf = PdfDocument::open(&processed_path).map_err(|e| {
+        error!("Failed to open PDF during layout analysis: {:?}", e);
+        ExtractorError::PdfOpenError(format!("{:?}", e))
+    })?;
 
     let pages = pdf.pages();
     if pages.is_empty() {
@@ -107,7 +122,10 @@ pub fn detect_column_guides<P: AsRef<Path>>(
     let mut histogram = vec![0usize; 1000];
     let sample_pages = pages.iter().take(5); // Analyze up to first 5 pages for layout
     let pages_count = sample_pages.len();
-    debug!("Analyzing first {} pages for horizontal text distribution...", pages_count);
+    debug!(
+        "Analyzing first {} pages for horizontal text distribution...",
+        pages_count
+    );
 
     for page in sample_pages {
         let width = page.width as f64;
@@ -179,7 +197,11 @@ pub fn detect_column_guides<P: AsRef<Path>>(
         }
     }
 
-    info!("Layout analysis complete. Auto-detected {} column delimiters: {:?}", guides.len(), guides);
+    info!(
+        "Layout analysis complete. Auto-detected {} column delimiters: {:?}",
+        guides.len(),
+        guides
+    );
     Ok(guides)
 }
 
@@ -189,15 +211,17 @@ pub fn extract_from_file<P: AsRef<Path>>(
     config: &ExtractionConfig,
 ) -> Result<ExtractedTable, ExtractorError> {
     let path_ref = pdf_path.as_ref();
-    info!("Starting PDF table extraction for '{}'...", path_ref.display());
-    
+    info!(
+        "Starting PDF table extraction for '{}'...",
+        path_ref.display()
+    );
+
     let processed_path = decrypt_pdf_if_needed(path_ref, config.password.as_deref())?;
 
-    let pdf = PdfDocument::open(&processed_path)
-        .map_err(|e| {
-            error!("Failed to open PDF document: {:?}", e);
-            ExtractorError::PdfOpenError(format!("{:?}", e))
-        })?;
+    let pdf = PdfDocument::open(&processed_path).map_err(|e| {
+        error!("Failed to open PDF document: {:?}", e);
+        ExtractorError::PdfOpenError(format!("{:?}", e))
+    })?;
 
     let mut all_rows = Vec::new();
     let pages = pdf.pages();
@@ -427,8 +451,11 @@ pub fn extract_from_file<P: AsRef<Path>>(
             headers.push(m.to_uppercase());
         }
     }
-    
-    info!("Successfully extracted {} total transaction rows.", all_rows.len());
+
+    info!(
+        "Successfully extracted {} total transaction rows.",
+        all_rows.len()
+    );
 
     Ok(ExtractedTable {
         headers,
