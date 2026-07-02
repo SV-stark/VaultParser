@@ -9,6 +9,14 @@ repository = "https://github.com/SV-stark/VaultParser"
 homepage = "https://github.com/SV-stark/VaultParser"
 keywords = ["pdf", "bank-statement", "parser", "extractor", "xlsx"]
 categories = ["parser-implementations", "text-processing"]
+exclude = [
+    "*.pdf",
+    "*.csv",
+    "*.log",
+    "static/sample_hdfc.pdf",
+    "static/sample_hdfc_decrypted.pdf",
+    "temp/**"
+]
 
 [dependencies]
 pdfsink-rs = "0.2.8"
