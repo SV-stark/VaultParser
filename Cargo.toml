@@ -1,6 +1,6 @@
 [package]
 name = "vaultparser"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 description = "A fast, pure-Rust library and visual tool for extracting tabular transaction ledgers from PDF bank statements"
 license = "AGPL-3.0-only"
@@ -30,6 +30,9 @@ rust_xlsxwriter = "0.95.0"
 lopdf = "0.39"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+indicatif = "0.17"
 
 [features]
 default = []

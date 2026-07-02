@@ -80,14 +80,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## 💻 Running the CLI Tool
 
-You can run the extraction directly from the command line without opening a browser:
+You can run the extraction directly from the command line without opening a browser. The CLI utilizes `clap` for command-line parsing and option handling:
 
 ```bash
 # Print CSV results to stdout:
-cargo run --release --bin cli -- <input-pdf> <bank-preset>
+cargo run --release --bin cli -- <input-pdf> <bank-preset> [options]
 
 # Save CSV results directly to a file:
-cargo run --release --bin cli -- <input-pdf> <bank-preset> [output-csv]
+cargo run --release --bin cli -- <input-pdf> <bank-preset> [output-csv] [options]
 ```
 
 ### Examples:
@@ -97,6 +97,9 @@ cargo run --release --bin cli -- "hdfc bank.pdf" hdfc
 
 # Save Union Bank statement output to statement.csv
 cargo run --release --bin cli -- "statement.pdf" union output.csv
+
+# Auto-detect bank preset, decrypt with password, and save output
+cargo run --release --bin cli -- secure_statement.pdf auto output.csv --password "secret123"
 ```
 
 ---
@@ -132,12 +135,12 @@ cargo run --release --bin cli -- "statement.pdf" union output.csv
 ### B. Integrating the Rust Library in Your Code
 1. **Add Cargo Dependency**:
    Add `vaultparser` to your project's `Cargo.toml`. To include the visual Web UI server and its async framework dependencies, enable the optional `web` feature:
-   ```toml
-   [dependencies]
-   vaultparser = "0.1.4"
-   # Or with the optional web UI:
-   # vaultparser = { version = "0.1.4", features = ["web"] }
-   ```
+    ```toml
+    [dependencies]
+    vaultparser = "0.1.5"
+    # Or with the optional web UI:
+    # vaultparser = { version = "0.1.5", features = ["web"] }
+    ```
 2. **Define Configuration**: Use the builder pattern or bank presets to create the configuration:
    ```rust
    let config = vaultparser::BankPreset::Hdfc.config();

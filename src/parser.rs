@@ -23,9 +23,25 @@ fn is_possible_date(val: &str) -> bool {
     if cleaned.len() > 15 || cleaned.len() < 6 {
         return false;
     }
-    if !cleaned.contains('-') && !cleaned.contains('/') && !cleaned.contains('.') {
+
+    let has_separator = cleaned.contains('-') || cleaned.contains('/') || cleaned.contains('.');
+    let has_space = cleaned.contains(' ');
+
+    if !has_separator && !has_space {
         return false;
     }
+
+    if has_space && !has_separator {
+        let months = [
+            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        ];
+        let lower = cleaned.to_lowercase();
+        let contains_month = months.iter().any(|m| lower.contains(m));
+        if !contains_month {
+            return false;
+        }
+    }
+
     if cleaned.chars().filter(|c| c.is_ascii_alphabetic()).count() > 4 {
         return false;
     }
@@ -44,6 +60,37 @@ fn is_possible_amount(val: &str) -> bool {
         .trim()
         .to_string();
     cleaned.parse::<f64>().is_ok()
+}
+
+fn standardize_date(val: &str) -> String {
+    let cleaned = val.trim();
+    if cleaned.is_empty() {
+        return String::new();
+    }
+
+    // Try a series of common date formats
+    let formats = [
+        "%d/%m/%y", // 30/04/25
+        "%d/%m/%Y", // 30/04/2025
+        "%d-%m-%y", // 30-04-25
+        "%d-%m-%Y", // 30-04-2025
+        "%d.%m.%y", // 30.04.25
+        "%d.%m.%Y", // 30.04.2025
+        "%d %b %y", // 30 Apr 25
+        "%d %b %Y", // 30 Apr 2025
+        "%d-%b-%y", // 30-Apr-25
+        "%d-%b-%Y", // 30-Apr-2025
+        "%Y-%m-%d", // 2025-04-30
+    ];
+
+    for fmt in &formats {
+        if let Ok(dt) = chrono::NaiveDate::parse_from_str(cleaned, fmt) {
+            return dt.format("%Y-%m-%d").to_string();
+        }
+    }
+
+    // Fall back to original string if no format matches
+    cleaned.to_string()
 }
 
 /// Helper to decrypt a PDF natively with lopdf if it's encrypted
@@ -211,6 +258,66 @@ pub fn detect_column_guides<P: AsRef<Path>>(
     Ok(guides)
 }
 
+/// Auto-detect bank preset from a PDF file path by scanning its text content.
+pub fn detect_preset_from_file<P: AsRef<Path>>(
+    pdf_path: P,
+    password: Option<&str>,
+) -> Result<Option<crate::presets::BankPreset>, ExtractorError> {
+    let path_ref = pdf_path.as_ref();
+    let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
+
+    let pdf = PdfDocument::open(&processed_path)
+        .map_err(|e| ExtractorError::PdfOpenError(format!("{:?}", e)))?;
+
+    let pages = pdf.pages();
+    if pages.is_empty() {
+        if processed_path != path_ref {
+            let _ = std::fs::remove_file(&processed_path);
+        }
+        return Ok(None);
+    }
+
+    let first_page = &pages[0];
+    let words = first_page.extract_words();
+    let full_text = words
+        .iter()
+        .map(|w| w.text.as_str())
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .to_uppercase();
+
+    if processed_path != path_ref {
+        let _ = std::fs::remove_file(&processed_path);
+    }
+
+    if full_text.contains("HDFC BANK") || full_text.contains("HDFCBANK") {
+        Ok(Some(crate::presets::BankPreset::Hdfc))
+    } else if full_text.contains("STATE BANK OF INDIA") || full_text.contains("SBI ") {
+        Ok(Some(crate::presets::BankPreset::Sbi))
+    } else if full_text.contains("CANARA") {
+        Ok(Some(crate::presets::BankPreset::Canara))
+    } else if full_text.contains("UNION BANK") {
+        Ok(Some(crate::presets::BankPreset::Union))
+    } else if full_text.contains("UCO BANK") {
+        Ok(Some(crate::presets::BankPreset::Uco))
+    } else if full_text.contains("INDIAN BANK") || full_text.contains("ALLAHABAD") {
+        Ok(Some(crate::presets::BankPreset::Indian))
+    } else if full_text.contains("H P STATE CO-OP")
+        || full_text.contains("CO-OPERATIVE BANK")
+        || full_text.contains("HPSCB")
+    {
+        Ok(Some(crate::presets::BankPreset::Hpscb))
+    } else if full_text.contains("ICICI BANK") {
+        Ok(Some(crate::presets::BankPreset::Icici))
+    } else if full_text.contains("PUNJAB NATIONAL BANK") || full_text.contains("PNB ") {
+        Ok(Some(crate::presets::BankPreset::Pnb))
+    } else if full_text.contains("KOTAK MAHINDRA") || full_text.contains("KOTAK BANK") {
+        Ok(Some(crate::presets::BankPreset::Kotak))
+    } else {
+        Ok(None)
+    }
+}
+
 /// Primary function to extract tabular data from a PDF file path
 pub fn extract_from_file<P: AsRef<Path>>(
     pdf_path: P,
@@ -354,10 +461,20 @@ pub fn extract_from_file<P: AsRef<Path>>(
 
         let desc_idx = config.col_mappings.iter().position(|m| m == "description");
         let date_idx = config.col_mappings.iter().position(|m| m == "date");
+        let val_date_idx = config.col_mappings.iter().position(|m| m == "value_date");
         let amount_idx = config.col_mappings.iter().position(|m| m == "amount");
         let debit_idx = config.col_mappings.iter().position(|m| m == "debit");
         let credit_idx = config.col_mappings.iter().position(|m| m == "credit");
         let balance_idx = config.col_mappings.iter().position(|m| m == "balance");
+
+        // Standardize date formats using chrono NaiveDate parser
+        for idx in [date_idx, val_date_idx].into_iter().flatten() {
+            for row in &mut page_rows {
+                if idx < row.cells.len() && !row.cells[idx].is_empty() {
+                    row.cells[idx] = standardize_date(&row.cells[idx]);
+                }
+            }
+        }
 
         if config.merge_multi_line {
             if let Some(desc_idx) = desc_idx {
@@ -503,8 +620,11 @@ mod tests {
         assert!(is_possible_date("01/02/2023"));
         assert!(is_possible_date("15-08-1947"));
         assert!(is_possible_date("2026-07-01"));
+        assert!(is_possible_date("30 Apr 2025"));
+        assert!(is_possible_date("30 Oct 25"));
         assert!(!is_possible_date(""));
         assert!(!is_possible_date("Not a date"));
+        assert!(!is_possible_date("DEP 123"));
     }
 
     #[test]
@@ -615,6 +735,18 @@ mod tests {
     }
 
     #[test]
+    fn test_standardize_date() {
+        assert_eq!(standardize_date("30/04/2025"), "2025-04-30");
+        assert_eq!(standardize_date("30/04/25"), "2025-04-30");
+        assert_eq!(standardize_date("30-04-2025"), "2025-04-30");
+        assert_eq!(standardize_date("30.04.25"), "2025-04-30");
+        assert_eq!(standardize_date("30 Apr 2025"), "2025-04-30");
+        assert_eq!(standardize_date("30 Apr 25"), "2025-04-30");
+        assert_eq!(standardize_date("2025-04-30"), "2025-04-30");
+        assert_eq!(standardize_date("not-a-date"), "not-a-date");
+    }
+
+    #[test]
     fn test_detect_column_guides() {
         let pdf_path = Path::new("static/sample_hdfc_decrypted.pdf");
         if pdf_path.exists() {
@@ -627,6 +759,17 @@ mod tests {
             let guides = guides_res.unwrap();
             assert!(!guides.is_empty(), "Detected guides should not be empty");
             println!("Auto-detected column guides: {:?}", guides);
+        }
+    }
+
+    #[test]
+    fn test_detect_preset_from_file() {
+        let pdf_path = Path::new("static/sample_hdfc_decrypted.pdf");
+        if pdf_path.exists() {
+            let preset_res = detect_preset_from_file(pdf_path, None);
+            assert!(preset_res.is_ok());
+            let preset = preset_res.unwrap();
+            assert_eq!(preset, Some(BankPreset::Hdfc));
         }
     }
 }

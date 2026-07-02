@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-07-02
+
+### Added
+- Integrated `clap` crate for structured command-line argument parsing.
+- Integrated `chrono` date parsing to standardize date and value-date columns to ISO `YYYY-MM-DD` format.
+- Integrated `indicatif` spinner indicators for interactive visual feedback in the CLI tool.
+- Added a dedicated unit test suite for verifying date standardization.
+
+### Fixed
+- Fixed CLI panic when arguments are missing or invalid by returning usage hints cleanly.
+
 ## [0.1.4] - 2026-07-02
 
 ### Added
