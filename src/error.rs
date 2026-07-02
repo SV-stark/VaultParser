@@ -1,13 +1,21 @@
 use std::fmt;
 
+/// Custom error types for the PDF extraction and parsing processes.
 #[derive(Debug)]
 pub enum ExtractorError {
+    /// Failed to open or read the PDF file.
     PdfOpenError(String),
+    /// Failed to extract layouts, text elements, or words from the PDF document.
     PdfExtractionError(String),
+    /// Error parsing JSON data (e.g. settings or configuration).
     JsonError(String),
+    /// Error compiling or writing the output to an Excel spreadsheet (.xlsx).
     XlsxWriteError(String),
+    /// Error formatting or writing the output to a CSV file.
     CsvWriteError(String),
+    /// Standard Input/Output system error.
     IOError(std::io::Error),
+    /// Failed to decrypt the PDF document using lopdf.
     DecryptError(String),
 }
 

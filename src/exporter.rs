@@ -2,6 +2,9 @@ use crate::error::ExtractorError;
 use crate::models::ExtractedTable;
 use rust_xlsxwriter::Workbook;
 
+/// Converts an [`ExtractedTable`] into a UTF-8 CSV formatted byte vector.
+///
+/// Only non-skipped columns (based on active indices) are exported.
 pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     let mut wtr = csv::Writer::from_writer(Vec::new());
 
@@ -27,6 +30,9 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
         .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))
 }
 
+/// Converts an [`ExtractedTable`] into an Excel workbook file (`.xlsx`) byte vector.
+///
+/// Only non-skipped columns (based on active indices) are exported.
 pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     let mut workbook = Workbook::new();
     let worksheet = workbook.add_worksheet();

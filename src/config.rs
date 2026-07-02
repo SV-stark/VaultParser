@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Configuration parameters for PDF table extraction.
+///
+/// This struct defines the extraction behaviors, coordinates for column boundaries,
+/// vertical row clustering tolerance, trimming limits, and filters.
+/// Usually constructed using [`ExtractionConfigBuilder`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionConfig {
     /// X-coordinate column dividers, sorted in ascending order (values between 0.0 and 1.0 relative to page width)
@@ -52,22 +57,27 @@ impl Default for ExtractionConfig {
 }
 
 impl ExtractionConfig {
+    /// Returns a new [`ExtractionConfigBuilder`] instance.
     pub fn builder() -> ExtractionConfigBuilder {
         ExtractionConfigBuilder::new()
     }
 }
 
+/// A builder helper for configuring and creating an [`ExtractionConfig`].
 pub struct ExtractionConfigBuilder {
     config: ExtractionConfig,
 }
 
 impl ExtractionConfigBuilder {
+    /// Creates a new `ExtractionConfigBuilder` with default configurations.
     pub fn new() -> Self {
         Self {
             config: ExtractionConfig::default(),
         }
     }
 
+    /// Sets the horizontal column division guides (0.0 to 1.0 relative to page width).
+    /// These guides are automatically sorted in ascending order.
     pub fn col_guides(mut self, guides: Vec<f64>) -> Self {
         self.config.col_guides = guides;
         self.config
@@ -76,51 +86,62 @@ impl ExtractionConfigBuilder {
         self
     }
 
+    /// Sets the column mapping labels corresponding to the divided columns.
+    /// The length of mappings must be equal to `col_guides.len() + 1`.
     pub fn col_mappings(mut self, mappings: Vec<String>) -> Self {
         self.config.col_mappings = mappings;
         self
     }
 
+    /// Sets the vertical distance tolerance (in points/pixels) for grouping words on the same row line.
     pub fn y_tolerance(mut self, tolerance: f64) -> Self {
         self.config.y_tolerance = tolerance;
         self
     }
 
+    /// Configures whether to merge description-only lines into the preceding transaction row's description.
     pub fn merge_multi_line(mut self, merge: bool) -> Self {
         self.config.merge_multi_line = merge;
         self
     }
 
+    /// Sets the number of rows to skip at the top of the first page (useful for skipping main statement headers).
     pub fn skip_header_rows(mut self, count: usize) -> Self {
         self.config.skip_header_rows = count;
         self
     }
 
+    /// Sets the number of rows to skip at the bottom of each page (useful for skipping page numbers and footers).
     pub fn skip_footer_rows(mut self, count: usize) -> Self {
         self.config.skip_footer_rows = count;
         self
     }
 
+    /// Configures whether to filter out rows that don't have a valid date in the mapped `date` column.
     pub fn filter_only_date(mut self, filter: bool) -> Self {
         self.config.filter_only_date = filter;
         self
     }
 
+    /// Configures whether to filter out rows that don't have an amount in any mapped `amount`, `debit`, or `credit` columns.
     pub fn filter_only_amount(mut self, filter: bool) -> Self {
         self.config.filter_only_amount = filter;
         self
     }
 
+    /// Sets the relative top margin for exclusion (0.0 to 1.0). Content above this is ignored.
     pub fn y_top_trim(mut self, trim: f64) -> Self {
         self.config.y_top_trim = trim;
         self
     }
 
+    /// Sets the relative bottom margin for exclusion (0.0 to 1.0). Content below this is ignored.
     pub fn y_bottom_trim(mut self, trim: f64) -> Self {
         self.config.y_bottom_trim = trim;
         self
     }
 
+    /// Applies manual cell content edits/overrides.
     pub fn manual_edits(
         mut self,
         edits: HashMap<String, HashMap<String, HashMap<String, String>>>,
@@ -129,16 +150,19 @@ impl ExtractionConfigBuilder {
         self
     }
 
+    /// Applies manual row deletions.
     pub fn deleted_rows(mut self, deleted: HashMap<String, HashMap<String, bool>>) -> Self {
         self.config.deleted_rows = deleted;
         self
     }
 
+    /// Sets the decryption password for the PDF document.
     pub fn password(mut self, password: Option<String>) -> Self {
         self.config.password = password;
         self
     }
 
+    /// Builds and returns the configured [`ExtractionConfig`].
     pub fn build(self) -> ExtractionConfig {
         self.config
     }

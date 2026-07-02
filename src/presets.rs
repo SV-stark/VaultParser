@@ -1,15 +1,25 @@
 use crate::config::ExtractionConfig;
 
+/// Supported out-of-the-box bank statement templates.
+///
+/// Each preset contains standard column coordinates and label mappings
+/// for common Indian banks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BankPreset {
+    /// HDFC Bank India statement template.
     Hdfc,
+    /// State Bank of India (SBI) statement template.
     Sbi,
+    /// Canara Bank statement template.
     Canara,
+    /// Union Bank of India statement template.
     Union,
+    /// UCO Bank statement template.
     Uco,
 }
 
 impl BankPreset {
+    /// Returns the human-readable display name of the bank preset.
     pub fn name(&self) -> &'static str {
         match self {
             Self::Hdfc => "HDFC Bank India",
@@ -20,6 +30,7 @@ impl BankPreset {
         }
     }
 
+    /// Returns the pre-configured [`ExtractionConfig`] for the specific bank.
     pub fn config(&self) -> ExtractionConfig {
         let mut config = ExtractionConfig::default();
         match self {
@@ -91,6 +102,8 @@ impl BankPreset {
         config
     }
 
+    /// Attempts to parse a case-insensitive string into a [`BankPreset`].
+    /// Returns `None` if the name is unrecognized.
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "hdfc" => Some(Self::Hdfc),
