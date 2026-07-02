@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VaultParser — Secure Offline-Only PDF Bank Converter</title>
+    <meta name="description" content="Secure local bank statement converter. Parse transaction history locally using Rust without server uploads." />
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Navbar Header -->
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-icon">V</div>
+          <div class="brand-logo-text">Vault<span>Parser</span></div>
+        </div>
+        <div class="security-badge">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
+          </svg>
+          Local Rust Engine (Offline & Secure)
+        </div>
+      </header>
+
+      <!-- App Main Layout Grid -->
+      <main class="app-grid">
+        <!-- Left Side Options -->
+        <section class="app-sidebar">
+          <!-- Card 1: Upload File -->
+          <div class="glass-card mb-4">
+            <h2 class="card-title">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+              </svg>
+              Upload Statement
+            </h2>
+
+            <div id="upload-stage">
+              <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-icon">📥</div>
+                <p class="primary-text">Drag and drop bank statement PDF</p>
+                <p class="secondary-text">or click to browse local files</p>
+                <input type="file" id="file-input" class="file-input" accept="application/pdf" />
+              </div>
+              <button id="btn-load-sample" class="btn btn-secondary" style="width: 100%; padding: 0.6rem; font-size: 0.85rem; font-weight: 600;">
+                ✨ Load Sample HDFC Statement
+              </button>
+            </div>
+
+            <div id="file-loaded-stage" class="hidden">
+              <div class="file-info-badge">
+                <div style="display: flex; flex-direction: column;">
+                  <span id="file-info-name" class="file-info-name"></span>
+                  <span id="file-info-size" class="file-info-size"></span>
+                </div>
+                <button id="btn-remove-file" class="btn-remove-file" title="Clear file">
+                  ✕
+                </button>
+              </div>
+
+              <div class="page-navigation">
+                <button id="btn-page-prev" class="btn-icon" disabled>◀</button>
+                <span class="page-indicator">
+                  Page <span id="current-page-num">1</span> of <span id="total-page-num">1</span>
+                </span>
+                <button id="btn-page-next" class="btn-icon" disabled>▶</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Layout Presets -->
+          <div id="presets-card" class="glass-card mb-4 hidden">
+            <h2 class="card-title">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="7" height="9" />
+                <rect x="14" y="3" width="7" height="5" />
+                <rect x="14" y="12" width="7" height="9" />
+                <rect x="3" y="16" width="7" height="5" />
+              </svg>
+              Layout Presets
+            </h2>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>Select Bank Standard Profile</label>
+              <select id="preset-selector" style="background: rgba(15, 23, 42, 0.6); color: white; border: 1px solid var(--border-color); padding: 0.6rem 0.8rem; border-radius: 8px; width: 100%; box-sizing: border-box; outline: none; cursor: pointer; font-weight: 500;">
+                <option value="auto">⚡ Auto-Detect (AI Gaps)</option>
+                <option value="hdfc">🏦 HDFC Bank India</option>
+                <option value="sbi">🏦 State Bank of India (SBI)</option>
+                <option value="canara">🏦 Canara Bank</option>
+                <option value="union">🏦 Union Bank of India</option>
+                <option value="uco">🏦 UCO Bank</option>
+                <option value="custom">⚙️ Custom Layout</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Card 3: Parser Tuning -->
+          <div id="settings-card" class="glass-card mb-4 hidden">
+            <h2 class="card-title">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              Parser Settings
+            </h2>
+
+            <div class="form-group">
+              <label>Row Splitting Sensitivity (Y-Tolerance)</label>
+              <div class="slider-container">
+                <input type="range" id="y-tolerance-input" min="2" max="20" value="6" />
+                <span id="y-tolerance-val" class="slider-val">6px</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="toggle-container" id="toggle-merge-lbl">
+                <span>Merge multi-line descriptions</span>
+                <input type="checkbox" id="merge-descriptions-input" checked style="display: none;" />
+                <div class="toggle-switch"></div>
+              </label>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group">
+                <label>Skip Header Rows</label>
+                <input type="number" id="skip-header-input" min="0" value="0" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.4rem 0.6rem; border-radius: 6px; width: 100%; box-sizing: border-box;" />
+              </div>
+              <div class="form-group">
+                <label>Skip Footer Rows</label>
+                <input type="number" id="skip-footer-input" min="0" value="0" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.4rem 0.6rem; border-radius: 6px; width: 100%; box-sizing: border-box;" />
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group">
+                <label>Top Crop (%)</label>
+                <input type="number" id="top-trim-input" min="0" max="100" value="0" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.4rem 0.6rem; border-radius: 6px; width: 100%; box-sizing: border-box;" />
+              </div>
+              <div class="form-group">
+                <label>Bottom Crop (%)</label>
+                <input type="number" id="bottom-trim-input" min="0" max="100" value="100" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.4rem 0.6rem; border-radius: 6px; width: 100%; box-sizing: border-box;" />
+              </div>
+            </div>
+
+
+            <div class="form-group">
+              <label class="toggle-container" id="toggle-filter-date-lbl" style="margin-bottom: 0.5rem;">
+                <span>Keep only valid dates in Date col</span>
+                <input type="checkbox" id="filter-date-input" checked style="display: none;" />
+                <div class="toggle-switch"></div>
+              </label>
+              <label class="toggle-container" id="toggle-filter-amount-lbl">
+                <span>Require numbers in Amount cols</span>
+                <input type="checkbox" id="filter-amount-input" style="display: none;" />
+                <div class="toggle-switch"></div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Card 4: Column Mappings -->
+          <div id="mappings-card" class="glass-card hidden">
+            <h2 class="card-title">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3v18M3 12h18" />
+              </svg>
+              Map Columns
+            </h2>
+            <p class="help-tip">
+              Adjust column dropdowns to match statement structure. Mark noise as <strong>Skip</strong>.
+            </p>
+            <div id="mappings-list" class="column-mappings-list"></div>
+          </div>
+        </section>
+
+        <!-- Right Side Viewer & Workspace -->
+        <section class="app-workspace">
+          <!-- Loading State Card -->
+          <div id="loading-card" class="glass-card loading-container hidden">
+            <div class="loading-spinner"></div>
+            <p id="loading-message" style="margin: 0; fontWeight: 500; color: var(--text-secondary);"></p>
+          </div>
+
+          <!-- Empty State Card -->
+          <div id="empty-card" class="glass-card empty-state">
+            <div class="empty-state-icon">📄</div>
+            <h3>No Bank Statement Loaded</h3>
+            <p>
+              Upload a transaction statement to get started. All calculations occur locally in the Rust backend.
+            </p>
+          </div>
+
+          <!-- Active Document Editor Workspace -->
+          <div id="workspace-card" class="workspace-wrapper hidden">
+            <!-- Canvas Visual Delimiters card -->
+            <div class="glass-card" style="padding: 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-family: var(--heading); font-size: 1rem; font-weight: 600;">
+                  Align Columns (Visual Guides)
+                </h3>
+                <div class="help-tip" style="margin: 0; padding: 0.25rem 0.5rem;">
+                  💡 <strong>Double-click</strong> canvas to add guide. <strong>Right-click / Drag-end</strong> to remove.
+                </div>
+              </div>
+
+              <div class="viewer-container">
+                <div id="canvas-wrapper" class="canvas-wrapper">
+                  <canvas id="pdf-canvas"></canvas>
+                  <!-- Draggable guides overlay container -->
+                  <div id="interactive-overlay" class="interactive-overlay"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Parsed Output Data Preview Table card -->
+            <div class="glass-card preview-card">
+              <div class="preview-header">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                  <h3 style="margin: 0; font-family: var(--heading); font-size: 1.1rem; font-weight: 600;">
+                    Statement Preview (Current Page)
+                  </h3>
+                  <div id="stats-badge" class="stats-badge">0 Rows Found</div>
+                </div>
+                
+                <div style="display: flex; gap: 0.75rem;">
+                  <button id="btn-export-csv" class="btn btn-secondary">Export All to CSV</button>
+                  <button id="btn-export-xlsx" class="btn btn-primary">Export All to Excel (.xlsx)</button>
+                </div>
+              </div>
+
+              <div class="preview-table-container">
+                <table id="preview-table" class="preview-table">
+                  <thead>
+                    <tr id="table-headers-row"></tr>
+                  </thead>
+                  <tbody id="table-body"></tbody>
+                </table>
+                <div id="table-empty-message" class="empty-state hidden" style="padding: 2.5rem;">
+                  <p>No transactions parsed. Try adjusting the Y-Tolerance slider or drawing column boundaries.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Footer Privacy Banner -->
+      <footer class="app-footer">
+        <svg viewBox="0 0 24 24" width="14" height="14">
+          <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+        </svg>
+        VaultParser uses a local Rust backend. Bank statements never leave your local machine.
+      </footer>
+    </div>
+
+    <!-- Script Entry Point -->
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

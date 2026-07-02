@@ -1,0 +1,24 @@
+# Rust output
+/target
+
+# Development temp directory
+/temp
+*.pdf.decrypted.pdf
+
+# OS/System files
+.DS_Store
+Thumbs.db
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# PDF statement files in root
+/RKS USER CHARGES bank.pdf
+/rks_output.csv
+

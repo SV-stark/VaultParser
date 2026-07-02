@@ -1,0 +1,24 @@
+[package]
+name = "vaultparser"
+version = "0.1.0"
+edition = "2024"
+description = "A fast, pure-Rust library and visual tool for extracting tabular transaction ledgers from PDF bank statements"
+license = "AGPL-3.0-only"
+readme = "README.md"
+repository = "https://github.com/SV-stark/VaultParser"
+homepage = "https://github.com/SV-stark/VaultParser"
+keywords = ["pdf", "bank-statement", "parser", "extractor", "xlsx"]
+categories = ["parser-implementations", "text-processing"]
+
+[dependencies]
+pdfsink-rs = "0.2.8"
+axum = { version = "0.7", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+csv = "1.3"
+rust_xlsxwriter = "0.95.0"
+lopdf = "0.39"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
