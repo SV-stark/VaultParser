@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-02
+
+### Added
+- Feature flags in `Cargo.toml`: introduced the `web` feature to make web dependencies (`axum`, `tokio`, `tower-http`, `serde_json`) optional and keep library compilation lean.
+- README status badges for crates.io version, docs.rs, GitHub Actions release build status, and license.
+
+### Changed
+- Configured GitHub Actions build workflow to compile the web binary with the `--features web` flag.
+
 ## [0.1.1] - 2026-07-02
 
 ### Added

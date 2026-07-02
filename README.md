@@ -1,5 +1,7 @@
 # 🏦 VaultParser — Pure Rust Bank Statement Extractor
 
+[![crates.io](https://img.shields.io/crates/v/vaultparser.svg)](https://crates.io/crates/vaultparser) [![docs.rs](https://docs.rs/vaultparser/badge.svg)](https://docs.rs/vaultparser) [![CI](https://github.com/SV-stark/VaultParser/actions/workflows/release.yml/badge.svg)](https://github.com/SV-stark/VaultParser/actions/workflows/release.yml) [![license](https://img.shields.io/crates/l/vaultparser.svg)](https://github.com/SV-stark/VaultParser/blob/main/LICENSE)
+
 VaultParser is a high-performance, secure, offline-only library and interactive web service built in **pure Rust** for extracting tabular transaction ledgers from PDF bank statements.
 
 It is designed to be **100% Python-free**, utilizing native Rust parsers and coordinate-clustering engines to process PDF structures with zero external runtimes (including native support for decrypting AES-256 encrypted PDFs with empty passwords using `lopdf 0.39.0`).

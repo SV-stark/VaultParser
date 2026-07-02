@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Binaries
         run: |
-          cargo build --release --target ${{ matrix.target }} --bin vaultparser
+          cargo build --release --target ${{ matrix.target }} --bin vaultparser --features web
           cargo build --release --target ${{ matrix.target }} --bin cli
 
       - name: Package Assets (Windows)
