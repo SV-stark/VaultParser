@@ -16,6 +16,12 @@ pub enum BankPreset {
     Union,
     /// UCO Bank statement template.
     Uco,
+    /// Indian Bank statement template.
+    Indian,
+    /// H P State Co-operative Bank statement template.
+    Hpscb,
+    /// ICICI Bank statement template.
+    Icici,
 }
 
 impl BankPreset {
@@ -27,6 +33,9 @@ impl BankPreset {
             Self::Canara => "Canara Bank",
             Self::Union => "Union Bank of India",
             Self::Uco => "UCO Bank",
+            Self::Indian => "Indian Bank",
+            Self::Hpscb => "H P State Co-operative Bank",
+            Self::Icici => "ICICI Bank",
         }
     }
 
@@ -98,6 +107,48 @@ impl BankPreset {
                 ];
                 config.filter_only_date = true;
             }
+            Self::Indian => {
+                config.col_guides = vec![0.08, 0.18, 0.45, 0.58, 0.71, 0.80];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "value_date".to_string(),
+                    "description".to_string(),
+                    "chq_no".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 15.0;
+            }
+            Self::Hpscb => {
+                config.col_guides = vec![0.08, 0.16, 0.38, 0.41, 0.65, 0.74, 0.82];
+                config.col_mappings = vec![
+                    "s_no".to_string(),
+                    "date".to_string(),
+                    "value_date".to_string(),
+                    "chq_no".to_string(),
+                    "description".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 15.0;
+            }
+            Self::Icici => {
+                config.col_guides = vec![0.08, 0.44, 0.55, 0.62, 0.88];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "chq_no".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
         }
         config
     }
@@ -111,6 +162,9 @@ impl BankPreset {
             "canara" => Some(Self::Canara),
             "union" => Some(Self::Union),
             "uco" => Some(Self::Uco),
+            "indian" => Some(Self::Indian),
+            "hpscb" => Some(Self::Hpscb),
+            "icici" => Some(Self::Icici),
             _ => None,
         }
     }

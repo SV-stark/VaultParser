@@ -1,6 +1,6 @@
 [package]
 name = "vaultparser"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "A fast, pure-Rust library and visual tool for extracting tabular transaction ledgers from PDF bank statements"
 license = "AGPL-3.0-only"

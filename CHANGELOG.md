@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-07-02
+
+### Added
+- Discovered and integrated real-world bank statements from OneDrive local backup to calibrate coordinates.
+- Added three new built-in bank templates to `BankPreset`:
+  - **Indian Bank** (`indian`): Tailored for standard Allahabad/Indian Bank statement formats with multi-line grouping (`y_tolerance = 15.0`).
+  - **H P State Co-operative Bank** (`hpscb`): Custom layout for HPSCB landscape A4 and detailed transaction items (`y_tolerance = 15.0`).
+  - **ICICI Bank** (`icici`): Accurate coordinates and guides for standard ICICI transaction registers.
+- Updated the local interactive web UI (`index.html` and `app.js`) to support selecting and auto-detecting Indian Bank, HPSCB, and ICICI Bank statements.
+
 ## [0.1.2] - 2026-07-02
 
 ### Added
