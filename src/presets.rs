@@ -22,6 +22,10 @@ pub enum BankPreset {
     Hpscb,
     /// ICICI Bank statement template.
     Icici,
+    /// Punjab National Bank (PNB) statement template.
+    Pnb,
+    /// Kotak Mahindra Bank statement template.
+    Kotak,
 }
 
 impl BankPreset {
@@ -36,6 +40,8 @@ impl BankPreset {
             Self::Indian => "Indian Bank",
             Self::Hpscb => "H P State Co-operative Bank",
             Self::Icici => "ICICI Bank",
+            Self::Pnb => "Punjab National Bank (PNB)",
+            Self::Kotak => "Kotak Mahindra Bank",
         }
     }
 
@@ -149,6 +155,32 @@ impl BankPreset {
                 config.filter_only_date = true;
                 config.y_tolerance = 12.0;
             }
+            Self::Pnb => {
+                config.col_guides = vec![0.14, 0.23, 0.33, 0.40, 0.47, 0.53];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                    "skip".to_string(),
+                    "chq_no".to_string(),
+                    "description".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
+            Self::Kotak => {
+                config.col_guides = vec![0.15, 0.44, 0.65, 0.79];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "reference".to_string(),
+                    "debit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
         }
         config
     }
@@ -165,6 +197,8 @@ impl BankPreset {
             "indian" => Some(Self::Indian),
             "hpscb" => Some(Self::Hpscb),
             "icici" => Some(Self::Icici),
+            "pnb" => Some(Self::Pnb),
+            "kotak" => Some(Self::Kotak),
             _ => None,
         }
     }

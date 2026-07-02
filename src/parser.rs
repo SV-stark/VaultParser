@@ -20,10 +20,16 @@ fn is_possible_date(val: &str) -> bool {
         return false;
     }
     let cleaned = val.trim();
-    if cleaned.len() > 15 {
+    if cleaned.len() > 15 || cleaned.len() < 6 {
         return false;
     }
-    cleaned.chars().any(|c| c.is_ascii_digit())
+    if !cleaned.contains('-') && !cleaned.contains('/') && !cleaned.contains('.') {
+        return false;
+    }
+    if cleaned.chars().filter(|c| c.is_ascii_alphabetic()).count() > 4 {
+        return false;
+    }
+    cleaned.chars().filter(|c| c.is_ascii_digit()).count() >= 2
 }
 
 fn is_possible_amount(val: &str) -> bool {

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-07-02
+
+### Added
+- Discovered and integrated real-world PNB and Kotak Mahindra bank statements from OneDrive local backup.
+- Added two new built-in bank templates to `BankPreset`:
+  - **Punjab National Bank (PNB)** (`pnb`): Tailored for standard PNB statement configurations.
+  - **Kotak Mahindra Bank** (`kotak`): Formatted for Kotak's single-column transaction amount layouts with correct date guide bounds (`0.15`) to prevent word overlapping.
+- Updated local web UI (`index.html` and `app.js`) to support selecting and auto-detecting PNB and Kotak statements.
+
+### Fixed
+- Refined the date validation heuristic (`is_possible_date` in `src/parser.rs`) to reject arbitrary strings like long addresses containing digits by imposing a limit of at most 4 alphabetic characters per date cell.
+
 ## [0.1.3] - 2026-07-02
 
 ### Added

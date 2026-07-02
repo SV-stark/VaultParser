@@ -50,6 +50,16 @@ const PRESETS = {
     guides: [0.08, 0.44, 0.55, 0.62, 0.88],
     mappings: ['date', 'description', 'chq_no', 'debit', 'credit', 'balance']
   },
+  pnb: {
+    name: '🏦 Punjab National Bank (PNB)',
+    guides: [0.14, 0.23, 0.33, 0.40, 0.47, 0.53],
+    mappings: ['date', 'debit', 'credit', 'balance', 'skip', 'chq_no', 'description']
+  },
+  kotak: {
+    name: '🏦 Kotak Mahindra Bank',
+    guides: [0.15, 0.44, 0.65, 0.79],
+    mappings: ['date', 'description', 'reference', 'debit', 'balance']
+  },
   custom: {
     name: '⚙️ Custom Layout',
     guides: null,
@@ -400,6 +410,8 @@ async function renderPDFPage(pageNum) {
       else if (fullText.includes('INDIAN BANK') || fullText.includes('ALLAHABAD')) matchedPreset = 'indian';
       else if (fullText.includes('H P STATE CO-OP') || fullText.includes('CO-OPERATIVE BANK') || fullText.includes('HPSCB')) matchedPreset = 'hpscb';
       else if (fullText.includes('ICICI BANK')) matchedPreset = 'icici';
+      else if (fullText.includes('PUNJAB NATIONAL BANK') || fullText.includes('PNB ')) matchedPreset = 'pnb';
+      else if (fullText.includes('KOTAK MAHINDRA') || fullText.includes('KOTAK BANK')) matchedPreset = 'kotak';
       
       if (matchedPreset !== 'auto') {
         selectedPreset = matchedPreset;
