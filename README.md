@@ -18,6 +18,11 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
     *   Canara Bank
     *   Union Bank of India
     *   UCO Bank
+    *   Indian Bank
+    *   H P State Co-operative Bank (HPSCB)
+    *   ICICI Bank
+    *   Punjab National Bank (PNB)
+    *   Kotak Mahindra Bank
 *   **✨ Interactive Web UI**: Includes a web-based visual dashboard where you can:
     *   Drag, double-click to add, or right-click to delete vertical column guides over the PDF canvas.
     *   Crop header/footer regions in real-time.
@@ -52,8 +57,8 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
 Add the library to your own Rust application to parse statements programmatically:
 
 ```rust
-use bsc::{ExtractionConfig, BankPreset, extract_from_file};
-use bsc::exporter::export_to_csv;
+use vaultparser::{ExtractionConfig, BankPreset, extract_from_file};
+use vaultparser::exporter::export_to_csv;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Load HDFC preset column coordinates
@@ -126,22 +131,24 @@ cargo run --release --bin cli -- "statement.pdf" union output.csv
 
 ### B. Integrating the Rust Library in Your Code
 1. **Add Cargo Dependency**:
-   Reference the local library in your project's `Cargo.toml`:
+   Add `vaultparser` to your project's `Cargo.toml`. To include the visual Web UI server and its async framework dependencies, enable the optional `web` feature:
    ```toml
    [dependencies]
-   bsc = { path = "../bsc" }
+   vaultparser = "0.1.4"
+   # Or with the optional web UI:
+   # vaultparser = { version = "0.1.4", features = ["web"] }
    ```
 2. **Define Configuration**: Use the builder pattern or bank presets to create the configuration:
    ```rust
-   let config = bsc::BankPreset::Hdfc.config();
+   let config = vaultparser::BankPreset::Hdfc.config();
    ```
 3. **Run Extraction**: Pass the PDF file path or byte buffer to the parser:
    ```rust
-   let table = bsc::extract_from_file("my_statement.pdf", &config)?;
+   let table = vaultparser::extract_from_file("my_statement.pdf", &config)?;
    ```
 4. **Save Export**: Output the transaction data directly:
    ```rust
-   let csv_data = bsc::exporter::export_to_csv(&table)?;
+   let csv_data = vaultparser::exporter::export_to_csv(&table)?;
    std::fs::write("statement.csv", csv_data)?;
    ```
 
