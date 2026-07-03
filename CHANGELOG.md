@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-07-03
+
+### Added
+- Configuration validation inside `ExtractionConfigBuilder` and `ExtractionConfig` to prevent mismatched mappings, out-of-bounds crop guides, or invalid trim bounds.
+- Custom structured error variants (`InvalidConfig`, `PasswordError`) to `ExtractorError` for better API error classification.
+- Added comprehensive unit testing for builder validation rules.
+
+### Fixed
+- Fixed a decrypted PDF temp-file resource leak on early exit or panic inside extraction, preset detection, and layout analysis by introducing a drop-guard `TempFileGuard`.
+- Fixed a concurrency race condition in test suites/parallel runs by appending unique timestamps to decrypted temporary filenames.
+- Cleaned up CLI version tracking to pull version details automatically from `Cargo.toml`.
+
 ## [0.1.5] - 2026-07-02
 
 ### Added

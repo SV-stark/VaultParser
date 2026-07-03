@@ -137,13 +137,30 @@ cargo run --release --bin cli -- secure_statement.pdf auto output.csv --password
    Add `vaultparser` to your project's `Cargo.toml`. To include the visual Web UI server and its async framework dependencies, enable the optional `web` feature:
     ```toml
     [dependencies]
-    vaultparser = "0.1.5"
+    vaultparser = "0.1.6"
     # Or with the optional web UI:
-    # vaultparser = { version = "0.1.5", features = ["web"] }
+    # vaultparser = { version = "0.1.6", features = ["web"] }
     ```
-2. **Define Configuration**: Use the builder pattern or bank presets to create the configuration:
+2. **Define Configuration**: Use pre-configured bank presets or customize via the builder pattern (which returns a `Result` for validation since `v0.1.6`):
    ```rust
+   // Option A: Using a pre-configured bank preset
    let config = vaultparser::BankPreset::Hdfc.config();
+
+   // Option B: Custom configuration with validation
+   let config = vaultparser::ExtractionConfig::builder()
+       .col_guides(vec![0.11, 0.42, 0.52, 0.62, 0.75, 0.88])
+       .col_mappings(vec![
+           "date".to_string(),
+           "description".to_string(),
+           "reference".to_string(),
+           "skip".to_string(),
+           "debit".to_string(),
+           "credit".to_string(),
+           "balance".to_string(),
+       ])
+       .y_top_trim(0.0)
+       .y_bottom_trim(1.0)
+       .build()?;
    ```
 3. **Run Extraction**: Pass the PDF file path or byte buffer to the parser:
    ```rust
