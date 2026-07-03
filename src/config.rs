@@ -1,3 +1,4 @@
+use crate::error::ExtractorError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -60,6 +61,39 @@ impl ExtractionConfig {
     /// Returns a new [`ExtractionConfigBuilder`] instance.
     pub fn builder() -> ExtractionConfigBuilder {
         ExtractionConfigBuilder::new()
+    }
+
+    /// Validates the configuration parameters.
+    ///
+    /// # Errors
+    /// Returns `ExtractorError::InvalidConfig` if column guides/mappings length or crop bounds are invalid.
+    pub fn validate(&self) -> Result<(), ExtractorError> {
+        if !self.col_guides.is_empty() && self.col_mappings.len() != self.col_guides.len() + 1 {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "Column mappings length ({}) must be equal to column guides length ({}) + 1",
+                self.col_mappings.len(),
+                self.col_guides.len()
+            )));
+        }
+        if self.y_top_trim < 0.0 || self.y_top_trim > 1.0 {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "y_top_trim must be between 0.0 and 1.0, found {}",
+                self.y_top_trim
+            )));
+        }
+        if self.y_bottom_trim < 0.0 || self.y_bottom_trim > 1.0 {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "y_bottom_trim must be between 0.0 and 1.0, found {}",
+                self.y_bottom_trim
+            )));
+        }
+        if self.y_top_trim > self.y_bottom_trim {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "y_top_trim ({}) cannot be greater than y_bottom_trim ({})",
+                self.y_top_trim, self.y_bottom_trim
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -163,7 +197,11 @@ impl ExtractionConfigBuilder {
     }
 
     /// Builds and returns the configured [`ExtractionConfig`].
-    pub fn build(self) -> ExtractionConfig {
-        self.config
+    ///
+    /// # Errors
+    /// Returns `ExtractorError::InvalidConfig` if the configuration is invalid.
+    pub fn build(self) -> Result<ExtractionConfig, ExtractorError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }

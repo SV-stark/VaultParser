@@ -9,7 +9,7 @@ use vaultparser::{
 #[derive(Parser, Debug)]
 #[command(
     name = "VaultParser CLI",
-    version = "0.1.4",
+    version,
     about = "🏦 VaultParser — Pure Rust Bank Statement Extractor"
 )]
 struct Args {
@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .col_guides(guides)
                 .col_mappings(mappings)
                 .password(args.password.clone())
-                .build()
+                .build()?
         }
     } else {
         let preset = match BankPreset::from_str(&args.preset) {

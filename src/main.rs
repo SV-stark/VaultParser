@@ -186,7 +186,8 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
         .manual_edits(edits_data)
         .deleted_rows(deletes_data)
         .password(password)
-        .build();
+        .build()
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid config: {}", e)))?;
 
     let extracted_table = extract_from_bytes(&file_bytes, &config).map_err(|e| {
         (

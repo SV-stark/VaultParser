@@ -18,6 +18,10 @@ pub enum ExtractorError {
     IOError(std::io::Error),
     /// Failed to decrypt the PDF document using lopdf.
     DecryptError(String),
+    /// Invalid configuration parameters supplied.
+    InvalidConfig(String),
+    /// Password required or incorrect password supplied for PDF decryption.
+    PasswordError(String),
 }
 
 impl std::error::Error for ExtractorError {}
@@ -35,6 +39,8 @@ impl fmt::Display for ExtractorError {
             Self::CsvWriteError(e) => write!(f, "CSV writing error: {}", e),
             Self::IOError(e) => write!(f, "I/O error: {}", e),
             Self::DecryptError(e) => write!(f, "PDF decryption error: {}", e),
+            Self::InvalidConfig(e) => write!(f, "Invalid configuration: {}", e),
+            Self::PasswordError(e) => write!(f, "Password error: {}", e),
         }
     }
 }

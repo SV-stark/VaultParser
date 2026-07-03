@@ -93,6 +93,26 @@ fn standardize_date(val: &str) -> String {
     cleaned.to_string()
 }
 
+struct TempFileGuard {
+    path: Option<PathBuf>,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path: Some(path) }
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if let Some(ref path) = self.path {
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
 /// Helper to decrypt a PDF natively with lopdf if it's encrypted
 fn decrypt_pdf_if_needed(
     temp_path: &Path,
@@ -104,7 +124,22 @@ fn decrypt_pdf_if_needed(
     };
 
     if use_decrypted {
-        let decrypted_path = temp_path.with_extension("decrypted.pdf");
+        let ts = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let decrypted_name = format!(
+            "{}_decrypted_{}.pdf",
+            temp_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("temp"),
+            ts
+        );
+        let decrypted_path = temp_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(decrypted_name);
         let pwd = password.unwrap_or("");
 
         info!(
@@ -119,7 +154,15 @@ fn decrypt_pdf_if_needed(
                 temp_path.display(),
                 e
             );
-            ExtractorError::DecryptError(format!("Failed to load/decrypt PDF with lopdf: {:?}", e))
+            let err_str = format!("{:?}", e);
+            if err_str.to_lowercase().contains("password") {
+                ExtractorError::PasswordError("Incorrect or missing password".to_string())
+            } else {
+                ExtractorError::DecryptError(format!(
+                    "Failed to load/decrypt PDF with lopdf: {:?}",
+                    e
+                ))
+            }
         })?;
 
         if doc.is_encrypted() {
@@ -152,6 +195,25 @@ pub fn detect_column_guides<P: AsRef<Path>>(
     y_top_trim: f64,
     y_bottom_trim: f64,
 ) -> Result<Vec<f64>, ExtractorError> {
+    if y_top_trim < 0.0 || y_top_trim > 1.0 {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_top_trim must be between 0.0 and 1.0, found {}",
+            y_top_trim
+        )));
+    }
+    if y_bottom_trim < 0.0 || y_bottom_trim > 1.0 {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_bottom_trim must be between 0.0 and 1.0, found {}",
+            y_bottom_trim
+        )));
+    }
+    if y_top_trim > y_bottom_trim {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_top_trim ({}) cannot be greater than y_bottom_trim ({})",
+            y_top_trim, y_bottom_trim
+        )));
+    }
+
     let path_ref = pdf_path.as_ref();
     info!(
         "Starting layout analysis to auto-detect columns for '{}'...",
@@ -159,6 +221,11 @@ pub fn detect_column_guides<P: AsRef<Path>>(
     );
 
     let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
+    let _guard = if processed_path != path_ref {
+        Some(TempFileGuard::new(processed_path.clone()))
+    } else {
+        None
+    };
 
     let pdf = PdfDocument::open(&processed_path).map_err(|e| {
         error!("Failed to open PDF during layout analysis: {:?}", e);
@@ -265,15 +332,17 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
 ) -> Result<Option<crate::presets::BankPreset>, ExtractorError> {
     let path_ref = pdf_path.as_ref();
     let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
+    let _guard = if processed_path != path_ref {
+        Some(TempFileGuard::new(processed_path.clone()))
+    } else {
+        None
+    };
 
     let pdf = PdfDocument::open(&processed_path)
         .map_err(|e| ExtractorError::PdfOpenError(format!("{:?}", e)))?;
 
     let pages = pdf.pages();
     if pages.is_empty() {
-        if processed_path != path_ref {
-            let _ = std::fs::remove_file(&processed_path);
-        }
         return Ok(None);
     }
 
@@ -285,10 +354,6 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
         .collect::<Vec<&str>>()
         .join(" ")
         .to_uppercase();
-
-    if processed_path != path_ref {
-        let _ = std::fs::remove_file(&processed_path);
-    }
 
     if full_text.contains("HDFC BANK") || full_text.contains("HDFCBANK") {
         Ok(Some(crate::presets::BankPreset::Hdfc))
@@ -323,6 +388,8 @@ pub fn extract_from_file<P: AsRef<Path>>(
     pdf_path: P,
     config: &ExtractionConfig,
 ) -> Result<ExtractedTable, ExtractorError> {
+    config.validate()?;
+
     let path_ref = pdf_path.as_ref();
     info!(
         "Starting PDF table extraction for '{}'...",
@@ -330,10 +397,20 @@ pub fn extract_from_file<P: AsRef<Path>>(
     );
 
     let processed_path = decrypt_pdf_if_needed(path_ref, config.password.as_deref())?;
+    let _guard = if processed_path != path_ref {
+        Some(TempFileGuard::new(processed_path.clone()))
+    } else {
+        None
+    };
 
     let pdf = PdfDocument::open(&processed_path).map_err(|e| {
         error!("Failed to open PDF document: {:?}", e);
-        ExtractorError::PdfOpenError(format!("{:?}", e))
+        let err_str = format!("{:?}", e);
+        if err_str.to_lowercase().contains("password") || err_str.contains("Xref") {
+            ExtractorError::PasswordError("Incorrect or missing password".to_string())
+        } else {
+            ExtractorError::PdfOpenError(format!("{:?}", e))
+        }
     })?;
 
     let mut all_rows = Vec::new();
@@ -560,11 +637,6 @@ pub fn extract_from_file<P: AsRef<Path>>(
         all_rows.extend(filtered_rows);
     }
 
-    // Clean up decrypted file if it was created temporarily
-    if processed_path != path_ref {
-        let _ = fs::remove_file(&processed_path);
-    }
-
     // Calculate active indices and headers
     let mut active_indices = Vec::new();
     let mut headers = Vec::new();
@@ -592,6 +664,8 @@ pub fn extract_from_bytes(
     pdf_bytes: &[u8],
     config: &ExtractionConfig,
 ) -> Result<ExtractedTable, ExtractorError> {
+    config.validate()?;
+
     // Create a temp file to hold the bytes for parsing
     let temp_dir = Path::new("temp");
     fs::create_dir_all(temp_dir)?;
@@ -604,10 +678,9 @@ pub fn extract_from_bytes(
     let temp_path = temp_dir.join(&temp_name);
 
     fs::write(&temp_path, pdf_bytes)?;
+    let _guard = TempFileGuard::new(temp_path.clone());
 
-    let result = extract_from_file(&temp_path, config);
-    let _ = fs::remove_file(&temp_path);
-    result
+    extract_from_file(&temp_path, config)
 }
 
 #[cfg(test)]
@@ -771,5 +844,30 @@ mod tests {
             let preset = preset_res.unwrap();
             assert_eq!(preset, Some(BankPreset::Hdfc));
         }
+    }
+
+    #[test]
+    fn test_invalid_config_validation() {
+        // Mismatched mappings count (mappings: 2, guides: 2 -> mappings must be guides + 1 = 3)
+        let config_res = ExtractionConfig::builder()
+            .col_guides(vec![0.2, 0.5])
+            .col_mappings(vec!["date".to_string(), "description".to_string()])
+            .build();
+        assert!(config_res.is_err());
+        assert!(matches!(
+            config_res.err().unwrap(),
+            ExtractorError::InvalidConfig(_)
+        ));
+
+        // Bad y_top_trim range
+        let config_res2 = ExtractionConfig::builder().y_top_trim(1.5).build();
+        assert!(config_res2.is_err());
+
+        // y_top_trim > y_bottom_trim
+        let config_res3 = ExtractionConfig::builder()
+            .y_top_trim(0.8)
+            .y_bottom_trim(0.3)
+            .build();
+        assert!(config_res3.is_err());
     }
 }
