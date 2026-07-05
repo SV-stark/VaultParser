@@ -19,8 +19,8 @@ struct Args {
     /// Bank preset name (e.g., hdfc, sbi, canara, union, uco, auto)
     preset: String,
 
-    /// Optional path to write output CSV file. If omitted, prints to stdout.
-    output_csv: Option<String>,
+    /// Optional path to write output file (CSV or XLSX). If omitted, prints CSV to stdout.
+    output: Option<String>,
 
     /// Password to decrypt secure PDFs
     #[arg(short, long)]
@@ -105,12 +105,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let table = extract_from_file(pdf_path, &config)?;
     spinner.finish_with_message(format!("Success! Extracted {} rows.", table.rows.len()));
 
-    let csv_bytes = export_to_csv(&table)?;
-
-    if let Some(out_path_str) = &args.output_csv {
-        std::fs::write(out_path_str, &csv_bytes)?;
-        println!("Saved CSV output to: {}", out_path_str);
+    if let Some(out_path_str) = &args.output {
+        if out_path_str.to_lowercase().ends_with(".xlsx") {
+            use vaultparser::exporter::export_to_xlsx;
+            let xlsx_bytes = export_to_xlsx(&table)?;
+            std::fs::write(out_path_str, &xlsx_bytes)?;
+            println!("Saved Excel output to: {}", out_path_str);
+        } else {
+            let csv_bytes = export_to_csv(&table)?;
+            std::fs::write(out_path_str, &csv_bytes)?;
+            println!("Saved CSV output to: {}", out_path_str);
+        }
     } else {
+        let csv_bytes = export_to_csv(&table)?;
         let csv_text = String::from_utf8(csv_bytes)?;
         println!("\n--- Extracted Transactions (CSV) ---");
         println!("{}", csv_text);

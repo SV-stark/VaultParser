@@ -85,7 +85,7 @@ fn standardize_date(val: &str) -> String {
 
     for fmt in &formats {
         if let Ok(dt) = chrono::NaiveDate::parse_from_str(cleaned, fmt) {
-            return dt.format("%Y-%m-%d").to_string();
+            return dt.format("%d-%m-%Y").to_string();
         }
     }
 
@@ -809,13 +809,13 @@ mod tests {
 
     #[test]
     fn test_standardize_date() {
-        assert_eq!(standardize_date("30/04/2025"), "2025-04-30");
-        assert_eq!(standardize_date("30/04/25"), "2025-04-30");
-        assert_eq!(standardize_date("30-04-2025"), "2025-04-30");
-        assert_eq!(standardize_date("30.04.25"), "2025-04-30");
-        assert_eq!(standardize_date("30 Apr 2025"), "2025-04-30");
-        assert_eq!(standardize_date("30 Apr 25"), "2025-04-30");
-        assert_eq!(standardize_date("2025-04-30"), "2025-04-30");
+        assert_eq!(standardize_date("30/04/2025"), "30-04-2025");
+        assert_eq!(standardize_date("30/04/25"), "30-04-2025");
+        assert_eq!(standardize_date("30-04-2025"), "30-04-2025");
+        assert_eq!(standardize_date("30.04.25"), "30-04-2025");
+        assert_eq!(standardize_date("30 Apr 2025"), "30-04-2025");
+        assert_eq!(standardize_date("30 Apr 25"), "30-04-2025");
+        assert_eq!(standardize_date("2025-04-30"), "30-04-2025");
         assert_eq!(standardize_date("not-a-date"), "not-a-date");
     }
 

@@ -18,7 +18,7 @@ Thumbs.db
 # Logs
 *.log
 
-# PDF statement files in root
 /RKS USER CHARGES bank.pdf
 /rks_output.csv
+/RKS USER CHARGES bank.xlsx
 

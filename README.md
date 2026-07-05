@@ -86,8 +86,8 @@ You can run the extraction directly from the command line without opening a brow
 # Print CSV results to stdout:
 cargo run --release --bin cli -- <input-pdf> <bank-preset> [options]
 
-# Save CSV results directly to a file:
-cargo run --release --bin cli -- <input-pdf> <bank-preset> [output-csv] [options]
+# Save CSV or Excel (.xlsx) results directly to a file:
+cargo run --release --bin cli -- <input-pdf> <bank-preset> [output-file] [options]
 ```
 
 ### Examples:
@@ -97,6 +97,9 @@ cargo run --release --bin cli -- "hdfc bank.pdf" hdfc
 
 # Save Union Bank statement output to statement.csv
 cargo run --release --bin cli -- "statement.pdf" union output.csv
+
+# Save Union Bank statement output directly to Excel
+cargo run --release --bin cli -- "statement.pdf" union output.xlsx
 
 # Auto-detect bank preset, decrypt with password, and save output
 cargo run --release --bin cli -- secure_statement.pdf auto output.csv --password "secret123"
@@ -137,9 +140,9 @@ cargo run --release --bin cli -- secure_statement.pdf auto output.csv --password
    Add `vaultparser` to your project's `Cargo.toml`. To include the visual Web UI server and its async framework dependencies, enable the optional `web` feature:
     ```toml
     [dependencies]
-    vaultparser = "0.1.6"
+    vaultparser = "0.1.7"
     # Or with the optional web UI:
-    # vaultparser = { version = "0.1.6", features = ["web"] }
+    # vaultparser = { version = "0.1.7", features = ["web"] }
     ```
 2. **Define Configuration**: Use pre-configured bank presets or customize via the builder pattern (which returns a `Result` for validation since `v0.1.6`):
    ```rust
