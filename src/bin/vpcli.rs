@@ -10,7 +10,8 @@ use vaultparser::{
 #[command(
     name = "VaultParser CLI",
     version,
-    about = "🏦 VaultParser — Pure Rust Bank Statement Extractor"
+    about = "🏦 VaultParser — Pure Rust Bank Statement Extractor",
+    arg_required_else_help = true
 )]
 struct Args {
     /// Path to the input statement PDF
