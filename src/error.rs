@@ -8,7 +8,6 @@ pub enum ExtractorError {
     /// Failed to extract layouts, text elements, or words from the PDF document.
     PdfExtractionError(String),
     /// Error parsing JSON data (e.g. settings or configuration).
-    #[cfg(feature = "web")]
     JsonError(String),
     /// Error compiling or writing the output to an Excel spreadsheet (.xlsx).
     XlsxWriteError(String),
@@ -33,7 +32,6 @@ impl fmt::Display for ExtractorError {
             Self::PdfExtractionError(e) => {
                 write!(f, "Failed to extract layout words from PDF: {}", e)
             }
-            #[cfg(feature = "web")]
             Self::JsonError(e) => write!(f, "JSON error: {}", e),
             Self::XlsxWriteError(e) => write!(f, "Excel writing error: {}", e),
             Self::CsvWriteError(e) => write!(f, "CSV writing error: {}", e),
@@ -51,7 +49,6 @@ impl From<std::io::Error> for ExtractorError {
     }
 }
 
-#[cfg(feature = "web")]
 impl From<serde_json::Error> for ExtractorError {
     fn from(err: serde_json::Error) -> Self {
         Self::JsonError(err.to_string())

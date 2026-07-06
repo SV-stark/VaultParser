@@ -62,3 +62,8 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
         .save_to_buffer()
         .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))
 }
+
+/// Converts an [`ExtractedTable`] into a pretty JSON formatted byte vector.
+pub fn export_to_json(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
+    serde_json::to_vec_pretty(table).map_err(Into::into)
+}
