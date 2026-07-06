@@ -45,7 +45,7 @@ jobs:
       - name: Build Binaries
         run: |
           cargo build --release --target ${{ matrix.target }} --bin vaultparser --features web
-          cargo build --release --target ${{ matrix.target }} --bin cli
+          cargo build --release --target ${{ matrix.target }} --bin vpcli
 
       - name: Package Assets (Windows)
         if: matrix.os == 'windows-latest'
@@ -55,7 +55,7 @@ jobs:
           $dir_name = "vaultparser-$version-${{ matrix.asset_suffix }}"
           New-Item -ItemType Directory -Path $dir_name
           Copy-Item "target/${{ matrix.target }}/release/vaultparser.exe" -Destination "$dir_name/"
-          Copy-Item "target/${{ matrix.target }}/release/cli.exe" -Destination "$dir_name/"
+          Copy-Item "target/${{ matrix.target }}/release/vpcli.exe" -Destination "$dir_name/"
           Copy-Item -Recurse "static" -Destination "$dir_name/"
           Copy-Item "README.md" -Destination "$dir_name/"
           Copy-Item "LICENSE" -Destination "$dir_name/"
@@ -68,7 +68,7 @@ jobs:
           DIR_NAME="vaultparser-$VERSION-${{ matrix.asset_suffix }}"
           mkdir -p "$DIR_NAME"
           cp "target/${{ matrix.target }}/release/vaultparser" "$DIR_NAME/"
-          cp "target/${{ matrix.target }}/release/cli" "$DIR_NAME/"
+          cp "target/${{ matrix.target }}/release/vpcli" "$DIR_NAME/"
           cp -r "static" "$DIR_NAME/"
           cp "README.md" "$DIR_NAME/"
           cp "LICENSE" "$DIR_NAME/"

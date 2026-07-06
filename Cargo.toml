@@ -44,5 +44,5 @@ path = "src/main.rs"
 required-features = ["web"]
 
 [[bin]]
-name = "cli"
-path = "src/bin/cli.rs"
+name = "vpcli"
+path = "src/bin/vpcli.rs"

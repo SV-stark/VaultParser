@@ -44,7 +44,7 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
 │   ├── error.rs        # Custom library error handling
 │   ├── main.rs         # Local web UI server binary
 │   └── bin/
-│       └── cli.rs      # Command line tool binary
+│       └── vpcli.rs    # Command line tool binary
 ├── static/             # Frontend assets (HTML, style.css, app.js, pdf.js)
 ├── temp/               # Temporary parsing folder (automatically cleaned up)
 └── Cargo.toml          # Cargo package file
@@ -84,25 +84,25 @@ You can run the extraction directly from the command line without opening a brow
 
 ```bash
 # Print CSV results to stdout:
-cargo run --release --bin cli -- <input-pdf> <bank-preset> [options]
+cargo run --release --bin vpcli -- <input-pdf> <bank-preset> [options]
 
 # Save CSV or Excel (.xlsx) results directly to a file:
-cargo run --release --bin cli -- <input-pdf> <bank-preset> [output-file] [options]
+cargo run --release --bin vpcli -- <input-pdf> <bank-preset> [output-file] [options]
 ```
 
 ### Examples:
 ```bash
 # Output HDFC statement directly to stdout
-cargo run --release --bin cli -- "hdfc bank.pdf" hdfc
+cargo run --release --bin vpcli -- "hdfc bank.pdf" hdfc
 
 # Save Union Bank statement output to statement.csv
-cargo run --release --bin cli -- "statement.pdf" union output.csv
+cargo run --release --bin vpcli -- "statement.pdf" union output.csv
 
 # Save Union Bank statement output directly to Excel
-cargo run --release --bin cli -- "statement.pdf" union output.xlsx
+cargo run --release --bin vpcli -- "statement.pdf" union output.xlsx
 
 # Auto-detect bank preset, decrypt with password, and save output
-cargo run --release --bin cli -- secure_statement.pdf auto output.csv --password "secret123"
+cargo run --release --bin vpcli -- secure_statement.pdf auto output.csv --password "secret123"
 ```
 
 ---
@@ -197,18 +197,18 @@ You can control the log verbosity using the `RUST_LOG` environment variable:
   ```powershell
   # Windows PowerShell
   $env:RUST_LOG="info"
-  cargo run --bin cli -- "hdfc bank.pdf" hdfc
+  cargo run --bin vpcli -- "hdfc bank.pdf" hdfc
   ```
   ```bash
   # Linux/macOS
   export RUST_LOG=info
-  cargo run --bin cli -- "hdfc bank.pdf" hdfc
+  cargo run --bin vpcli -- "hdfc bank.pdf" hdfc
   ```
 
 * **Show page-by-page word counts and layout details (debug):**
   ```powershell
   $env:RUST_LOG="debug"
-  cargo run --bin cli -- "hdfc bank.pdf" hdfc
+  cargo run --bin vpcli -- "hdfc bank.pdf" hdfc
   ```
 
 ---
