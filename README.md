@@ -140,9 +140,9 @@ cargo run --release --bin vpcli -- secure_statement.pdf auto output.csv --passwo
    Add `vaultparser` to your project's `Cargo.toml`. To include the visual Web UI server and its async framework dependencies, enable the optional `web` feature:
     ```toml
     [dependencies]
-    vaultparser = "0.1.7"
+    vaultparser = "0.2.0"
     # Or with the optional web UI:
-    # vaultparser = { version = "0.1.7", features = ["web"] }
+    # vaultparser = { version = "0.2.0", features = ["web"] }
     ```
 2. **Define Configuration**: Use pre-configured bank presets or customize via the builder pattern (which returns a `Result` for validation since `v0.1.6`):
    ```rust

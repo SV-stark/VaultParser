@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-06
+
+### Added
+- Support for saving Excel files (`.xlsx`) directly via the CLI by specifying a `.xlsx` output path.
+- Standardized all exported date columns to `DD-MM-YYYY` format.
+- Renamed the generic CLI binary from `cli` to a unique command name `vpcli`.
+
+### Changed
+- Upgraded dependencies to their latest compatible versions:
+  - `rust_xlsxwriter` to `0.96`
+  - `lopdf` to `0.43`
+  - `indicatif` to `0.18`
+
 ## [0.1.7] - 2026-07-06
 
 ### Added
