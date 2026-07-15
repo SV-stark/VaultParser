@@ -46,6 +46,15 @@ impl BankPreset {
     }
 
     /// Returns the pre-configured [`ExtractionConfig`] for the specific bank.
+    ///
+    /// # Examples
+    /// ```
+    /// use vaultparser::BankPreset;
+    ///
+    /// let config = BankPreset::Hdfc.config();
+    /// assert!(config.filter_only_date);
+    /// assert_eq!(config.col_mappings.len(), config.col_guides.len() + 1);
+    /// ```
     pub fn config(&self) -> ExtractionConfig {
         let mut config = ExtractionConfig::default();
         match self {
@@ -187,6 +196,15 @@ impl BankPreset {
 
     /// Attempts to parse a case-insensitive string into a [`BankPreset`].
     /// Returns `None` if the name is unrecognized.
+    ///
+    /// # Examples
+    /// ```
+    /// use vaultparser::BankPreset;
+    ///
+    /// assert_eq!(BankPreset::from_str("hdfc"), Some(BankPreset::Hdfc));
+    /// assert_eq!(BankPreset::from_str("HDFC"), Some(BankPreset::Hdfc));
+    /// assert_eq!(BankPreset::from_str("nope"), None);
+    /// ```
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "hdfc" => Some(Self::Hdfc),

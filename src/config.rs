@@ -59,6 +59,27 @@ impl Default for ExtractionConfig {
 
 impl ExtractionConfig {
     /// Returns a new [`ExtractionConfigBuilder`] instance.
+    ///
+    /// # Examples
+    /// ```
+    /// use vaultparser::ExtractionConfig;
+    ///
+    /// let config = ExtractionConfig::builder()
+    ///     .col_guides(vec![0.11, 0.42, 0.52, 0.62, 0.75, 0.88])
+    ///     .col_mappings(vec![
+    ///         "date".to_string(),
+    ///         "description".to_string(),
+    ///         "reference".to_string(),
+    ///         "skip".to_string(),
+    ///         "debit".to_string(),
+    ///         "credit".to_string(),
+    ///         "balance".to_string(),
+    ///     ])
+    ///     .y_tolerance(6.0)
+    ///     .build()
+    ///     .expect("valid configuration");
+    /// assert_eq!(config.col_mappings.len(), config.col_guides.len() + 1);
+    /// ```
     pub fn builder() -> ExtractionConfigBuilder {
         ExtractionConfigBuilder::new()
     }
@@ -200,6 +221,18 @@ impl ExtractionConfigBuilder {
     ///
     /// # Errors
     /// Returns `ExtractorError::InvalidConfig` if the configuration is invalid.
+    ///
+    /// # Examples
+    /// ```
+    /// use vaultparser::ExtractionConfig;
+    ///
+    /// // Mappings must be exactly one more than guides.
+    /// let result = ExtractionConfig::builder()
+    ///     .col_guides(vec![0.2, 0.5])
+    ///     .col_mappings(vec!["date".to_string()])
+    ///     .build();
+    /// assert!(result.is_err());
+    /// ```
     pub fn build(self) -> Result<ExtractionConfig, ExtractorError> {
         self.config.validate()?;
         Ok(self.config)

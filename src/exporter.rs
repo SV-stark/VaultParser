@@ -5,6 +5,26 @@ use rust_xlsxwriter::Workbook;
 /// Converts an [`ExtractedTable`] into a UTF-8 CSV formatted byte vector.
 ///
 /// Only non-skipped columns (based on active indices) are exported.
+///
+/// # Examples
+/// ```
+/// use vaultparser::{ExtractedTable, PageRow, exporter};
+///
+/// let table = ExtractedTable {
+///     headers: vec!["DATE".to_string(), "DESCRIPTION".to_string()],
+///     active_indices: vec![0, 1],
+///     rows: vec![PageRow {
+///         id: "row-0".to_string(),
+///         y: 100.0,
+///         page: 1,
+///         cells: vec!["01/02/2023".to_string(), "Test".to_string()],
+///     }],
+/// };
+/// let csv = exporter::export_to_csv(&table).unwrap();
+/// let text = String::from_utf8(csv).unwrap();
+/// assert!(text.contains("DATE,DESCRIPTION"));
+/// assert!(text.contains("01/02/2023,Test"));
+/// ```
 pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     let mut wtr = csv::Writer::from_writer(Vec::new());
 
@@ -33,6 +53,26 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
 /// Converts an [`ExtractedTable`] into an Excel workbook file (`.xlsx`) byte vector.
 ///
 /// Only non-skipped columns (based on active indices) are exported.
+///
+/// # Examples
+/// ```
+/// use vaultparser::{ExtractedTable, PageRow, exporter};
+///
+/// let table = ExtractedTable {
+///     headers: vec!["DATE".to_string(), "DESCRIPTION".to_string()],
+///     active_indices: vec![0, 1],
+///     rows: vec![PageRow {
+///         id: "row-0".to_string(),
+///         y: 100.0,
+///         page: 1,
+///         cells: vec!["01/02/2023".to_string(), "Test".to_string()],
+///     }],
+/// };
+/// let xlsx = exporter::export_to_xlsx(&table).unwrap();
+/// assert!(!xlsx.is_empty());
+/// // A valid XLSX is a ZIP (PK) archive.
+/// assert_eq!(&xlsx[..2], b"PK");
+/// ```
 pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     let mut workbook = Workbook::new();
     let worksheet = workbook.add_worksheet();
@@ -64,6 +104,26 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
 }
 
 /// Converts an [`ExtractedTable`] into a pretty JSON formatted byte vector.
+///
+/// # Examples
+/// ```
+/// use vaultparser::{ExtractedTable, PageRow, exporter};
+///
+/// let table = ExtractedTable {
+///     headers: vec!["DATE".to_string()],
+///     active_indices: vec![0],
+///     rows: vec![PageRow {
+///         id: "row-0".to_string(),
+///         y: 100.0,
+///         page: 1,
+///         cells: vec!["01/02/2023".to_string()],
+///     }],
+/// };
+/// let json = exporter::export_to_json(&table).unwrap();
+/// let text = String::from_utf8(json).unwrap();
+/// assert!(text.contains("\"DATE\""));
+/// assert!(text.contains("01/02/2023"));
+/// ```
 pub fn export_to_json(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     serde_json::to_vec_pretty(table).map_err(Into::into)
 }
