@@ -123,6 +123,12 @@ pub struct ExtractionConfigBuilder {
     config: ExtractionConfig,
 }
 
+impl Default for ExtractionConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExtractionConfigBuilder {
     /// Creates a new `ExtractionConfigBuilder` with default configurations.
     pub fn new() -> Self {

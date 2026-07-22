@@ -10,10 +10,108 @@ use std::fs;
 use tower_http::services::ServeDir;
 
 use vaultparser::{
-    ExtractionConfig,
+    BankPreset, ExtractionConfig, detect_column_guides, detect_preset_from_file,
     exporter::{export_to_csv, export_to_xlsx},
     extract_from_bytes,
 };
+
+async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut file_bytes = Vec::new();
+    let mut password = None;
+    let mut y_top_trim = 0.0;
+    let mut y_bottom_trim = 1.0;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "file" => {
+                file_bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
+                    .to_vec();
+            }
+            "password" => {
+                let p = field
+                    .text()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                if !p.trim().is_empty() {
+                    password = Some(p);
+                }
+            }
+            "y_top_trim" => {
+                let y = field
+                    .text()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                y_top_trim = y.parse::<f64>().unwrap_or(0.0);
+            }
+            "y_bottom_trim" => {
+                let y = field
+                    .text()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                y_bottom_trim = y.parse::<f64>().unwrap_or(1.0);
+            }
+            _ => {}
+        }
+    }
+
+    if file_bytes.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "No file uploaded".to_string()));
+    }
+
+    let temp_dir = std::path::Path::new("temp");
+    fs::create_dir_all(temp_dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let temp_path = temp_dir.join(format!("detect_{}.pdf", ts));
+    fs::write(&temp_path, &file_bytes)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let preset_opt = detect_preset_from_file(&temp_path, password.as_deref())
+        .ok()
+        .flatten();
+    let (preset_key, preset_name) = match preset_opt {
+        Some(preset) => {
+            let key = match preset {
+                BankPreset::Hdfc => "hdfc",
+                BankPreset::Sbi => "sbi",
+                BankPreset::Canara => "canara",
+                BankPreset::Union => "union",
+                BankPreset::Uco => "uco",
+                BankPreset::Indian => "indian",
+                BankPreset::Hpscb => "hpscb",
+                BankPreset::Icici => "icici",
+                BankPreset::Pnb => "pnb",
+                BankPreset::Kotak => "kotak",
+            };
+            (Some(key.to_string()), Some(preset.name().to_string()))
+        }
+        None => (None, None),
+    };
+
+    let guides = detect_column_guides(&temp_path, password.as_deref(), y_top_trim, y_bottom_trim)
+        .unwrap_or_default();
+
+    let _ = fs::remove_file(&temp_path);
+
+    let response = serde_json::json!({
+        "preset": preset_key,
+        "preset_name": preset_name,
+        "guides": guides
+    });
+
+    Ok(Json(response).into_response())
+}
 
 async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut file_bytes = Vec::new();
@@ -266,6 +364,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/api/convert", post(convert_pdf))
+        .route("/api/detect", post(detect_pdf))
         .fallback_service(ServeDir::new("static"))
         .layer(tower_http::trace::TraceLayer::new_for_http());
 

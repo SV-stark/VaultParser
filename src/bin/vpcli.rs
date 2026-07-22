@@ -99,8 +99,8 @@ fn run_extraction_process(
             spinner.println(format!("Auto-detected column boundaries: {:?}", guides));
 
             let mut mappings = vec!["description".to_string()];
-            for i in 0..guides.len() {
-                mappings.push(format!("column_{}", i + 1));
+            for idx in 1..=guides.len() {
+                mappings.push(format!("column_{}", idx));
             }
 
             ExtractionConfig::builder()

@@ -11,6 +11,7 @@ use crate::models::{ExtractedTable, PageRow, WordItem};
 
 #[derive(Debug, Clone)]
 struct GroupedRow {
+    anchor_y: f64,
     y: f64,
     items: Vec<WordItem>,
 }
@@ -20,7 +21,7 @@ fn is_possible_date(val: &str) -> bool {
         return false;
     }
     let cleaned = val.trim();
-    if cleaned.len() > 15 || cleaned.len() < 6 {
+    if cleaned.len() > 25 || cleaned.len() < 5 {
         return false;
     }
 
@@ -42,7 +43,7 @@ fn is_possible_date(val: &str) -> bool {
         }
     }
 
-    if cleaned.chars().filter(|c| c.is_ascii_alphabetic()).count() > 4 {
+    if cleaned.chars().filter(|c| c.is_ascii_alphabetic()).count() > 6 {
         return false;
     }
     cleaned.chars().filter(|c| c.is_ascii_digit()).count() >= 2
@@ -52,13 +53,19 @@ fn is_possible_amount(val: &str) -> bool {
     if val.is_empty() {
         return false;
     }
-    let cleaned = val
-        .replace('$', "")
-        .replace('£', "")
-        .replace('€', "")
-        .replace(',', "")
+    let mut cleaned = val
+        .replace(['$', '£', '€', '₹', ','], "")
         .trim()
         .to_string();
+
+    let keywords = [
+        "Rs.", "RS.", "rs.", "Rs", "RS", "rs", "INR", "inr", "Cr.", "CR.", "cr.", "Cr", "CR", "cr",
+        "Dr.", "DR.", "dr.", "Dr", "DR", "dr",
+    ];
+    for kw in &keywords {
+        cleaned = cleaned.replace(kw, "");
+    }
+    let cleaned = cleaned.trim();
     cleaned.parse::<f64>().is_ok()
 }
 
@@ -66,6 +73,24 @@ fn standardize_date(val: &str) -> String {
     let cleaned = val.trim();
     if cleaned.is_empty() {
         return String::new();
+    }
+
+    // Try a series of common datetime formats first
+    let datetime_formats = [
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d-%m-%Y %H:%M:%S",
+        "%d-%m-%Y %H:%M",
+        "%d-%b-%Y %H:%M:%S",
+        "%d-%b-%Y %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+    ];
+
+    for fmt in &datetime_formats {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(cleaned, fmt) {
+            return dt.format("%d-%m-%Y").to_string();
+        }
     }
 
     // Try a series of common date formats
@@ -80,12 +105,23 @@ fn standardize_date(val: &str) -> String {
         "%d %b %Y", // 30 Apr 2025
         "%d-%b-%y", // 30-Apr-25
         "%d-%b-%Y", // 30-Apr-2025
+        "%d %B %Y", // 30 April 2025
+        "%d-%B-%Y", // 30-April-2025
         "%Y-%m-%d", // 2025-04-30
     ];
 
     for fmt in &formats {
         if let Ok(dt) = chrono::NaiveDate::parse_from_str(cleaned, fmt) {
             return dt.format("%d-%m-%Y").to_string();
+        }
+    }
+
+    // Try parsing the first whitespace-separated token if there are trailing notes/timestamps
+    if let Some(first_part) = cleaned.split_whitespace().next().filter(|p| *p != cleaned) {
+        for fmt in &formats {
+            if let Ok(dt) = chrono::NaiveDate::parse_from_str(first_part, fmt) {
+                return dt.format("%d-%m-%Y").to_string();
+            }
         }
     }
 
@@ -105,10 +141,8 @@ impl TempFileGuard {
 
 impl Drop for TempFileGuard {
     fn drop(&mut self) {
-        if let Some(ref path) = self.path {
-            if path.exists() {
-                let _ = std::fs::remove_file(path);
-            }
+        if let Some(path) = self.path.as_ref().filter(|p| p.exists()) {
+            let _ = std::fs::remove_file(path);
         }
     }
 }
@@ -189,19 +223,20 @@ fn decrypt_pdf_if_needed(
 }
 
 /// Automatically detect column guides by analyzing the horizontal density of text spans
+#[allow(clippy::needless_range_loop)]
 pub fn detect_column_guides<P: AsRef<Path>>(
     pdf_path: P,
     password: Option<&str>,
     y_top_trim: f64,
     y_bottom_trim: f64,
 ) -> Result<Vec<f64>, ExtractorError> {
-    if y_top_trim < 0.0 || y_top_trim > 1.0 {
+    if !(0.0..=1.0).contains(&y_top_trim) {
         return Err(ExtractorError::InvalidConfig(format!(
             "y_top_trim must be between 0.0 and 1.0, found {}",
             y_top_trim
         )));
     }
-    if y_bottom_trim < 0.0 || y_bottom_trim > 1.0 {
+    if !(0.0..=1.0).contains(&y_bottom_trim) {
         return Err(ExtractorError::InvalidConfig(format!(
             "y_bottom_trim must be between 0.0 and 1.0, found {}",
             y_bottom_trim
@@ -248,8 +283,8 @@ pub fn detect_column_guides<P: AsRef<Path>>(
     );
 
     for page in sample_pages {
-        let width = page.width as f64;
-        let height = page.height as f64;
+        let width = page.width;
+        let height = page.height;
         let top_px = y_top_trim * height;
         let bottom_px = y_bottom_trim * height;
 
@@ -417,8 +452,8 @@ pub fn extract_from_file<P: AsRef<Path>>(
     let pages = pdf.pages();
 
     for (page_idx, page) in pages.iter().enumerate() {
-        let width = page.width as f64;
-        let height = page.height as f64;
+        let width = page.width;
+        let height = page.height;
         let top_px = config.y_top_trim * height;
         let bottom_px = config.y_bottom_trim * height;
 
@@ -448,17 +483,16 @@ pub fn extract_from_file<P: AsRef<Path>>(
         for item in items {
             let mut found_row_idx = None;
             for (idx, r) in grouped_rows.iter().enumerate() {
-                if (r.y - item.y).abs() <= config.y_tolerance {
+                if (r.anchor_y - item.y).abs() <= config.y_tolerance {
                     found_row_idx = Some(idx);
                     break;
                 }
             }
             if let Some(idx) = found_row_idx {
                 grouped_rows[idx].items.push(item);
-                let total_y: f64 = grouped_rows[idx].items.iter().map(|it| it.y).sum();
-                grouped_rows[idx].y = total_y / grouped_rows[idx].items.len() as f64;
             } else {
                 grouped_rows.push(GroupedRow {
+                    anchor_y: item.y,
                     y: item.y,
                     items: vec![item],
                 });
@@ -466,6 +500,8 @@ pub fn extract_from_file<P: AsRef<Path>>(
         }
 
         for r in &mut grouped_rows {
+            let total_y: f64 = r.items.iter().map(|it| it.y).sum();
+            r.y = total_y / r.items.len() as f64;
             r.items
                 .sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
         }
@@ -526,10 +562,12 @@ pub fn extract_from_file<P: AsRef<Path>>(
                 let y_key = format!("{:.2}", row.y);
                 if let Some(col_edits) = edits.get(&y_key) {
                     for (col_idx_str, val) in col_edits {
-                        if let Ok(col_idx) = col_idx_str.parse::<usize>() {
-                            if col_idx < row.cells.len() {
-                                row.cells[col_idx] = val.clone();
-                            }
+                        if let Some(cell) = col_idx_str
+                            .parse::<usize>()
+                            .ok()
+                            .and_then(|idx| row.cells.get_mut(idx))
+                        {
+                            *cell = val.clone();
                         }
                     }
                 }
@@ -553,37 +591,34 @@ pub fn extract_from_file<P: AsRef<Path>>(
             }
         }
 
-        if config.merge_multi_line {
-            if let Some(desc_idx) = desc_idx {
-                let mut merged = Vec::new();
-                for row in page_rows {
-                    let cell_desc = &row.cells[desc_idx];
-                    let is_date_empty = date_idx.map_or(true, |idx| row.cells[idx].is_empty());
-                    let is_amount_empty = amount_idx.map_or(true, |idx| row.cells[idx].is_empty());
-                    let is_debit_empty = debit_idx.map_or(true, |idx| row.cells[idx].is_empty());
-                    let is_credit_empty = credit_idx.map_or(true, |idx| row.cells[idx].is_empty());
-                    let is_balance_empty =
-                        balance_idx.map_or(true, |idx| row.cells[idx].is_empty());
+        if let Some(desc_idx) = config.merge_multi_line.then_some(desc_idx).flatten() {
+            let mut merged = Vec::new();
+            for row in page_rows {
+                let cell_desc = &row.cells[desc_idx];
+                let is_date_empty = date_idx.is_none_or(|idx| row.cells[idx].is_empty());
+                let is_amount_empty = amount_idx.is_none_or(|idx| row.cells[idx].is_empty());
+                let is_debit_empty = debit_idx.is_none_or(|idx| row.cells[idx].is_empty());
+                let is_credit_empty = credit_idx.is_none_or(|idx| row.cells[idx].is_empty());
+                let is_balance_empty = balance_idx.is_none_or(|idx| row.cells[idx].is_empty());
 
-                    let is_continuation = is_date_empty
-                        && is_amount_empty
-                        && is_debit_empty
-                        && is_credit_empty
-                        && is_balance_empty
-                        && !cell_desc.is_empty();
+                let is_continuation = is_date_empty
+                    && is_amount_empty
+                    && is_debit_empty
+                    && is_credit_empty
+                    && is_balance_empty
+                    && !cell_desc.is_empty();
 
-                    if is_continuation && !merged.is_empty() {
-                        let last_row: &mut PageRow = merged.last_mut().unwrap();
-                        last_row.cells[desc_idx] =
-                            format!("{} {}", last_row.cells[desc_idx], cell_desc)
-                                .trim()
-                                .to_string();
-                    } else {
-                        merged.push(row);
-                    }
+                if is_continuation && !merged.is_empty() {
+                    let last_row: &mut PageRow = merged.last_mut().unwrap();
+                    last_row.cells[desc_idx] =
+                        format!("{} {}", last_row.cells[desc_idx], cell_desc)
+                            .trim()
+                            .to_string();
+                } else {
+                    merged.push(row);
                 }
-                page_rows = merged;
             }
+            page_rows = merged;
         }
 
         // Skip header rows on page 1
@@ -601,31 +636,17 @@ pub fn extract_from_file<P: AsRef<Path>>(
         let mut filtered_rows = Vec::new();
         for row in page_rows {
             let mut keep = true;
-            if config.filter_only_date {
-                if let Some(date_idx) = date_idx {
-                    if !is_possible_date(&row.cells[date_idx]) {
-                        keep = false;
-                    }
-                }
+            if config.filter_only_date
+                && date_idx.is_some_and(|idx| !is_possible_date(&row.cells[idx]))
+            {
+                keep = false;
             }
             if config.filter_only_amount {
-                let mut has_val = false;
-                if let Some(amount_idx) = amount_idx {
-                    if is_possible_amount(&row.cells[amount_idx]) {
-                        has_val = true;
-                    }
-                }
-                if let Some(debit_idx) = debit_idx {
-                    if is_possible_amount(&row.cells[debit_idx]) {
-                        has_val = true;
-                    }
-                }
-                if let Some(credit_idx) = credit_idx {
-                    if is_possible_amount(&row.cells[credit_idx]) {
-                        has_val = true;
-                    }
-                }
-                if !has_val {
+                let has_amount = amount_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
+                let has_debit = debit_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
+                let has_credit = credit_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
+
+                if !has_amount && !has_debit && !has_credit {
                     keep = false;
                 }
             }
@@ -695,6 +716,8 @@ mod tests {
         assert!(is_possible_date("2026-07-01"));
         assert!(is_possible_date("30 Apr 2025"));
         assert!(is_possible_date("30 Oct 25"));
+        assert!(is_possible_date("30/04/2025 10:15:30"));
+        assert!(is_possible_date("01-Jan-2025"));
         assert!(!is_possible_date(""));
         assert!(!is_possible_date("Not a date"));
         assert!(!is_possible_date("DEP 123"));
@@ -706,6 +729,11 @@ mod tests {
         assert!(is_possible_amount("$1,234.50"));
         assert!(is_possible_amount("€100"));
         assert!(is_possible_amount("-50.00"));
+        assert!(is_possible_amount("1,250.00 Cr"));
+        assert!(is_possible_amount("500.00 Dr"));
+        assert!(is_possible_amount("Rs. 1,250.00"));
+        assert!(is_possible_amount("₹ 5,000.50 DR"));
+        assert!(is_possible_amount("100.00 INR"));
         assert!(!is_possible_amount("abc"));
         assert!(!is_possible_amount(""));
     }
@@ -810,6 +838,8 @@ mod tests {
     #[test]
     fn test_standardize_date() {
         assert_eq!(standardize_date("30/04/2025"), "30-04-2025");
+        assert_eq!(standardize_date("30/04/2025 10:15:30"), "30-04-2025");
+        assert_eq!(standardize_date("01-Jan-2025"), "01-01-2025");
         assert_eq!(standardize_date("30/04/25"), "30-04-2025");
         assert_eq!(standardize_date("30-04-2025"), "30-04-2025");
         assert_eq!(standardize_date("30.04.25"), "30-04-2025");

@@ -205,6 +205,7 @@ impl BankPreset {
     /// assert_eq!(BankPreset::from_str("HDFC"), Some(BankPreset::Hdfc));
     /// assert_eq!(BankPreset::from_str("nope"), None);
     /// ```
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "hdfc" => Some(Self::Hdfc),

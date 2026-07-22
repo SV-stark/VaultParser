@@ -297,6 +297,27 @@ function hideLoading() {
   loadingCard.classList.add('hidden');
 }
 
+// Call native Rust /api/detect endpoint to auto-detect preset and guides
+async function detectLayoutFromBackend() {
+  if (!file) return null;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('y_top_trim', (topCropPct / 100).toFixed(4));
+    formData.append('y_bottom_trim', (bottomCropPct / 100).toFixed(4));
+    const res = await fetch('/api/detect', {
+      method: 'POST',
+      body: formData
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Backend auto-detect endpoint failed, falling back to client JS:', err);
+  }
+  return null;
+}
+
 // Fetch and render local HDFC sample statement
 async function loadSamplePDF() {
   showLoading('Fetching sample HDFC statement...');
@@ -398,34 +419,46 @@ async function renderPDFPage(pageNum) {
       };
     });
     
-    // Auto-detect preset based on text keywords if first page load and using 'auto'
+    // Auto-detect preset & guides natively from Rust backend if using 'auto'
     if (pageNum === 1 && selectedPreset === 'auto') {
-      const fullText = textItems.map(it => it.str).join(' ').toUpperCase();
-      let matchedPreset = 'auto';
-      if (fullText.includes('HDFC BANK') || fullText.includes('HDFCBANK')) matchedPreset = 'hdfc';
-      else if (fullText.includes('STATE BANK OF INDIA') || fullText.includes('SBI ')) matchedPreset = 'sbi';
-      else if (fullText.includes('CANARA')) matchedPreset = 'canara';
-      else if (fullText.includes('UNION BANK')) matchedPreset = 'union';
-      else if (fullText.includes('UCO BANK')) matchedPreset = 'uco';
-      else if (fullText.includes('INDIAN BANK') || fullText.includes('ALLAHABAD')) matchedPreset = 'indian';
-      else if (fullText.includes('H P STATE CO-OP') || fullText.includes('CO-OPERATIVE BANK') || fullText.includes('HPSCB')) matchedPreset = 'hpscb';
-      else if (fullText.includes('ICICI BANK')) matchedPreset = 'icici';
-      else if (fullText.includes('PUNJAB NATIONAL BANK') || fullText.includes('PNB ')) matchedPreset = 'pnb';
-      else if (fullText.includes('KOTAK MAHINDRA') || fullText.includes('KOTAK BANK')) matchedPreset = 'kotak';
-      
-      if (matchedPreset !== 'auto') {
-        selectedPreset = matchedPreset;
-        presetSelector.value = matchedPreset;
-        const preset = PRESETS[matchedPreset];
+      const backendResult = await detectLayoutFromBackend();
+      if (backendResult && backendResult.preset && PRESETS[backendResult.preset]) {
+        selectedPreset = backendResult.preset;
+        presetSelector.value = backendResult.preset;
+        const preset = PRESETS[backendResult.preset];
         colGuides = preset.guides.map(p => Math.round(p * viewportWidth));
         colMappings = [...preset.mappings];
+      } else if (backendResult && backendResult.guides && backendResult.guides.length > 0) {
+        colGuides = backendResult.guides.map(g => Math.round(g * viewportWidth));
+        adjustMappings(colGuides.length + 1);
+      } else {
+        // Fallback to client-side keyword matching
+        const fullText = textItems.map(it => it.str).join(' ').toUpperCase();
+        let matchedPreset = 'auto';
+        if (fullText.includes('HDFC BANK') || fullText.includes('HDFCBANK')) matchedPreset = 'hdfc';
+        else if (fullText.includes('STATE BANK OF INDIA') || fullText.includes('SBI ')) matchedPreset = 'sbi';
+        else if (fullText.includes('CANARA')) matchedPreset = 'canara';
+        else if (fullText.includes('UNION BANK')) matchedPreset = 'union';
+        else if (fullText.includes('UCO BANK')) matchedPreset = 'uco';
+        else if (fullText.includes('INDIAN BANK') || fullText.includes('ALLAHABAD')) matchedPreset = 'indian';
+        else if (fullText.includes('H P STATE CO-OP') || fullText.includes('CO-OPERATIVE BANK') || fullText.includes('HPSCB')) matchedPreset = 'hpscb';
+        else if (fullText.includes('ICICI BANK')) matchedPreset = 'icici';
+        else if (fullText.includes('PUNJAB NATIONAL BANK') || fullText.includes('PNB ')) matchedPreset = 'pnb';
+        else if (fullText.includes('KOTAK MAHINDRA') || fullText.includes('KOTAK BANK')) matchedPreset = 'kotak';
+        
+        if (matchedPreset !== 'auto') {
+          selectedPreset = matchedPreset;
+          presetSelector.value = matchedPreset;
+          const preset = PRESETS[matchedPreset];
+          colGuides = preset.guides.map(p => Math.round(p * viewportWidth));
+          colMappings = [...preset.mappings];
+        }
       }
     }
     
-    // Initialize guides if first page load
+    // Initialize guides if first page load and still empty
     if (colGuides.length === 0) {
       if (selectedPreset === 'auto') {
-        // Filter out header/footer words before auto-detecting column gaps to ensure high accuracy
         const filteredForAuto = textItems.filter(it => yTopTrim <= it.y && it.y <= yBottomTrim);
         const autoGuides = autoDetectColumns(filteredForAuto, viewportWidth);
         colGuides = autoGuides;

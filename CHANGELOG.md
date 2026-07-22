@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-07-22
+
+### Added
+- Native `/api/detect` HTTP endpoint in Axum web server to auto-detect bank presets and column guide boundaries natively in Rust for uploaded statements (including encrypted PDFs).
+- Integrated native `/api/detect` endpoint call in web dashboard `app.js`.
+
+### Fixed
+- Fixed row Y-coordinate clustering centroid drift in parser engine by using fixed anchor Y coordinates during assignment.
+- Enhanced `is_possible_amount` to handle Indian Rupee symbols (`₹`, `Rs.`, `Rs`, `INR`) and credit/debit indicators (`Cr`, `Dr`, `CR`, `DR`).
+- Expanded `is_possible_date` and `standardize_date` to parse timestamped dates (e.g., `30/04/2025 10:15:30`), month-name formats, and single-token fallback values.
+
 ## [0.2.4] - 2026-07-15
 
 ### Changed
