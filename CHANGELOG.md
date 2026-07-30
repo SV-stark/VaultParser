@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-30
+
+### Added
+- Added TSV (Tab-Separated Values) format export support via `exporter::export_to_tsv`.
+- Added **Copy TSV to Clipboard** feature in Web UI dashboard for fast copy-pasting directly into Excel / Google Sheets.
+- Added explicit `--format / -f` CLI flag to `vpcli` supporting `csv`, `tsv`, `xlsx`, and `json`.
+- Added batch directory processing in `vpcli` to process folders of PDF bank statements in a single command.
+- Added 5 new native bank statement presets: Axis Bank (`axis`), Bank of Baroda (`bob`), YES Bank (`yes`), IDFC FIRST Bank (`idfc`), and IndusInd Bank (`indusind`).
+
+### Changed
+- Updated dependencies in `Cargo.lock` to latest semver-compatible versions.
+
 ## [0.2.5] - 2026-07-22
 
 ### Added

@@ -26,6 +26,16 @@ pub enum BankPreset {
     Pnb,
     /// Kotak Mahindra Bank statement template.
     Kotak,
+    /// Axis Bank statement template.
+    Axis,
+    /// Bank of Baroda statement template.
+    Bob,
+    /// YES Bank statement template.
+    Yes,
+    /// IDFC FIRST Bank statement template.
+    Idfc,
+    /// IndusInd Bank statement template.
+    Indusind,
 }
 
 impl BankPreset {
@@ -42,6 +52,11 @@ impl BankPreset {
             Self::Icici => "ICICI Bank",
             Self::Pnb => "Punjab National Bank (PNB)",
             Self::Kotak => "Kotak Mahindra Bank",
+            Self::Axis => "Axis Bank",
+            Self::Bob => "Bank of Baroda",
+            Self::Yes => "YES Bank",
+            Self::Idfc => "IDFC FIRST Bank",
+            Self::Indusind => "IndusInd Bank",
         }
     }
 
@@ -190,6 +205,72 @@ impl BankPreset {
                 config.filter_only_date = true;
                 config.y_tolerance = 12.0;
             }
+            Self::Axis => {
+                config.col_guides = vec![0.12, 0.42, 0.55, 0.68, 0.82];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "chq_no".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
+            Self::Bob => {
+                config.col_guides = vec![0.10, 0.20, 0.50, 0.65, 0.78, 0.88];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "value_date".to_string(),
+                    "description".to_string(),
+                    "chq_no".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 15.0;
+            }
+            Self::Yes => {
+                config.col_guides = vec![0.12, 0.45, 0.58, 0.72, 0.85];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "reference".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
+            Self::Idfc => {
+                config.col_guides = vec![0.11, 0.40, 0.54, 0.68, 0.82];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "reference".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
+            Self::Indusind => {
+                config.col_guides = vec![0.12, 0.44, 0.56, 0.70, 0.84];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "chq_no".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
         }
         config
     }
@@ -218,6 +299,11 @@ impl BankPreset {
             "icici" => Some(Self::Icici),
             "pnb" => Some(Self::Pnb),
             "kotak" => Some(Self::Kotak),
+            "axis" => Some(Self::Axis),
+            "bob" | "baroda" => Some(Self::Bob),
+            "yes" => Some(Self::Yes),
+            "idfc" => Some(Self::Idfc),
+            "indusind" => Some(Self::Indusind),
             _ => None,
         }
     }

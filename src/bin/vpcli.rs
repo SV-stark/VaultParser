@@ -1,9 +1,10 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use std::path::Path;
-use vaultparser::exporter::{export_to_csv, export_to_json, export_to_xlsx};
+use std::path::{Path, PathBuf};
+use vaultparser::exporter::{export_to_csv, export_to_json, export_to_tsv, export_to_xlsx};
 use vaultparser::{
-    BankPreset, ExtractionConfig, detect_column_guides, detect_preset_from_file, extract_from_file,
+    BankPreset, ExtractedTable, ExtractionConfig, detect_column_guides, detect_preset_from_file,
+    extract_from_file,
 };
 
 #[derive(Parser, Debug)]
@@ -13,18 +14,26 @@ use vaultparser::{
     about = "🏦 VaultParser — Pure Rust Bank Statement Extractor"
 )]
 struct Args {
-    /// Path to the input statement PDF
-    input_pdf: Option<String>,
+    /// Path to input statement PDF file or directory containing PDFs
+    input_path: Option<String>,
 
-    /// Bank preset name (e.g., hdfc, sbi, canara, union, uco, auto, or path to a JSON preset file)
+    /// Bank preset name (e.g. hdfc, sbi, canara, union, uco, indian, hpscb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or JSON preset file)
     preset: Option<String>,
 
-    /// Optional path to write output file (CSV, XLSX, or JSON). If omitted, prints CSV to stdout.
+    /// Optional output file or directory path. If omitted, prints results to stdout.
     output: Option<String>,
 
     /// Password to decrypt secure PDFs
     #[arg(short, long)]
     password: Option<String>,
+
+    /// Output format (csv, tsv, xlsx, json). Overrides extension inference.
+    #[arg(short, long)]
+    format: Option<String>,
+
+    /// Force directory batch processing mode
+    #[arg(short, long)]
+    dir: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,21 +47,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    match (args.input_pdf, args.preset) {
-        (Some(input_pdf), Some(preset)) => {
-            run_extraction_process(
-                &input_pdf,
-                &preset,
-                args.output.as_deref(),
-                args.password.as_deref(),
-            )?;
+    match (args.input_path, args.preset) {
+        (Some(input_path), Some(preset)) => {
+            let path = Path::new(&input_path);
+            if args.dir || path.is_dir() {
+                run_batch_extraction(
+                    path,
+                    &preset,
+                    args.output.as_deref(),
+                    args.format.as_deref(),
+                    args.password.as_deref(),
+                )?;
+            } else {
+                run_extraction_process(
+                    &input_path,
+                    &preset,
+                    args.output.as_deref(),
+                    args.format.as_deref(),
+                    args.password.as_deref(),
+                )?;
+            }
         }
         (None, None) => {
             run_wizard()?;
         }
         _ => {
             eprintln!(
-                "Error: Both INPUT_PDF and PRESET must be provided, or run without arguments for the interactive wizard."
+                "Error: Both INPUT_PATH and PRESET must be provided, or run without arguments for the interactive wizard."
             );
             std::process::exit(1);
         }
@@ -61,28 +82,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_extraction_process(
-    input_pdf: &str,
+fn get_format_bytes(
+    table: &ExtractedTable,
+    fmt_str: &str,
+) -> Result<(Vec<u8>, &'static str), Box<dyn std::error::Error>> {
+    match fmt_str.to_lowercase().as_str() {
+        "xlsx" | "excel" => Ok((export_to_xlsx(table)?, "xlsx")),
+        "json" => Ok((export_to_json(table)?, "json")),
+        "tsv" => Ok((export_to_tsv(table)?, "tsv")),
+        _ => Ok((export_to_csv(table)?, "csv")),
+    }
+}
+
+fn infer_format_from_str(s: &str) -> Option<&'static str> {
+    let lower = s.to_lowercase();
+    if lower.ends_with(".xlsx") {
+        Some("xlsx")
+    } else if lower.ends_with(".json") {
+        Some("json")
+    } else if lower.ends_with(".tsv") {
+        Some("tsv")
+    } else if lower.ends_with(".csv") {
+        Some("csv")
+    } else {
+        None
+    }
+}
+
+fn load_preset_config(
+    pdf_path: &Path,
     preset_str: &str,
-    output: Option<&str>,
     password: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let pdf_path = Path::new(input_pdf);
-    if !pdf_path.exists() {
-        eprintln!("Error: PDF file '{}' does not exist.", input_pdf);
-        std::process::exit(1);
-    }
-
-    let spinner = ProgressBar::new_spinner();
-    if let Ok(style) = ProgressStyle::default_spinner()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-        .template("{spinner:.green} {msg}")
-    {
-        spinner.set_style(style);
-    }
-    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
-
-    let config = if preset_str.to_lowercase() == "auto" {
+    spinner: &ProgressBar,
+) -> Result<ExtractionConfig, Box<dyn std::error::Error>> {
+    if preset_str.to_lowercase() == "auto" {
         spinner.set_message("Analyzing PDF to auto-detect bank preset...");
         if let Some(detected_preset) = detect_preset_from_file(pdf_path, password)? {
             spinner.println(format!(
@@ -91,7 +124,7 @@ fn run_extraction_process(
             ));
             let mut c = detected_preset.config();
             c.password = password.map(String::from);
-            c
+            Ok(c)
         } else {
             spinner.println("No known bank preset matched. Falling back to auto-detecting column guide boundaries...");
             spinner.set_message("Auto-detecting column boundaries...");
@@ -107,7 +140,8 @@ fn run_extraction_process(
                 .col_guides(guides)
                 .col_mappings(mappings)
                 .password(password.map(String::from))
-                .build()?
+                .build()
+                .map_err(Into::into)
         }
     } else if preset_str.to_lowercase().ends_with(".json") || Path::new(preset_str).exists() {
         spinner.set_message(format!(
@@ -117,7 +151,7 @@ fn run_extraction_process(
         let content = std::fs::read_to_string(preset_str)?;
         let mut c: ExtractionConfig = serde_json::from_str(&content)?;
         c.password = password.map(String::from);
-        c
+        Ok(c)
     } else {
         let preset = match BankPreset::from_str(preset_str) {
             Some(p) => p,
@@ -125,7 +159,7 @@ fn run_extraction_process(
                 spinner.finish_and_clear();
                 eprintln!("Error: Unknown bank preset '{}'.", preset_str);
                 eprintln!(
-                    "Available Presets: hdfc, sbi, canara, union, uco, auto, or a path to a JSON preset file"
+                    "Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file"
                 );
                 std::process::exit(1);
             }
@@ -134,61 +168,167 @@ fn run_extraction_process(
         spinner.println(format!("Loading configuration for {}...", preset.name()));
         let mut c = preset.config();
         c.password = password.map(String::from);
-        c
-    };
+        Ok(c)
+    }
+}
 
+fn process_single_pdf(
+    pdf_path: &Path,
+    preset_str: &str,
+    password: Option<&str>,
+) -> Result<ExtractedTable, Box<dyn std::error::Error>> {
+    let spinner = ProgressBar::new_spinner();
+    if let Ok(style) = ProgressStyle::default_spinner()
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+        .template("{spinner:.green} {msg}")
+    {
+        spinner.set_style(style);
+    }
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let config = load_preset_config(pdf_path, preset_str, password, &spinner)?;
     spinner.set_message(format!(
         "Extracting transaction table natively from '{}'...",
-        input_pdf
+        pdf_path.display()
     ));
     let table = extract_from_file(pdf_path, &config)?;
     spinner.finish_with_message(format!("Success! Extracted {} rows.", table.rows.len()));
+    Ok(table)
+}
 
-    if let Some(out_path_str) = output {
-        if out_path_str.to_lowercase().ends_with(".xlsx") {
-            let xlsx_bytes = export_to_xlsx(&table)?;
-            std::fs::write(out_path_str, &xlsx_bytes)?;
-            println!("Saved Excel output to: {}", out_path_str);
-        } else if out_path_str.to_lowercase().ends_with(".json") {
-            let json_bytes = export_to_json(&table)?;
-            std::fs::write(out_path_str, &json_bytes)?;
-            println!("Saved JSON output to: {}", out_path_str);
-        } else {
-            let csv_bytes = export_to_csv(&table)?;
-            std::fs::write(out_path_str, &csv_bytes)?;
-            println!("Saved CSV output to: {}", out_path_str);
-        }
-    } else {
-        let csv_bytes = export_to_csv(&table)?;
-        let csv_text = String::from_utf8(csv_bytes)?;
-        println!("\n--- Extracted Transactions (CSV) ---");
-        println!("{}", csv_text);
+fn run_extraction_process(
+    input_pdf: &str,
+    preset_str: &str,
+    output: Option<&str>,
+    format_override: Option<&str>,
+    password: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pdf_path = Path::new(input_pdf);
+    if !pdf_path.exists() {
+        eprintln!("Error: PDF file '{}' does not exist.", input_pdf);
+        std::process::exit(1);
     }
 
+    let table = process_single_pdf(pdf_path, preset_str, password)?;
+
+    let target_format = format_override
+        .or_else(|| output.and_then(infer_format_from_str))
+        .unwrap_or("csv");
+
+    if let Some(out_path_str) = output {
+        let (bytes, ext) = get_format_bytes(&table, target_format)?;
+        let final_path = if infer_format_from_str(out_path_str).is_some() {
+            out_path_str.to_string()
+        } else {
+            format!("{}.{}", out_path_str, ext)
+        };
+        std::fs::write(&final_path, &bytes)?;
+        println!("Saved {} output to: {}", ext.to_uppercase(), final_path);
+    } else {
+        let (bytes, ext) = get_format_bytes(&table, target_format)?;
+        let text = String::from_utf8(bytes)?;
+        println!("\n--- Extracted Transactions ({}) ---", ext.to_uppercase());
+        println!("{}", text);
+    }
+
+    Ok(())
+}
+
+fn run_batch_extraction(
+    dir_path: &Path,
+    preset_str: &str,
+    output_path: Option<&str>,
+    format_opt: Option<&str>,
+    password: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let entries = std::fs::read_dir(dir_path)?;
+    let mut pdf_files: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_file()
+            && p.extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_lowercase())
+                == Some("pdf".to_string())
+        {
+            pdf_files.push(p);
+        }
+    }
+
+    if pdf_files.is_empty() {
+        println!("No PDF files found in directory '{}'.", dir_path.display());
+        return Ok(());
+    }
+
+    println!(
+        "Found {} PDF statement(s) in '{}' for batch processing.",
+        pdf_files.len(),
+        dir_path.display()
+    );
+
+    let out_dir = match output_path {
+        Some(p) => {
+            let path = Path::new(p);
+            if !path.exists() {
+                std::fs::create_dir_all(path)?;
+            }
+            path.to_path_buf()
+        }
+        None => dir_path.to_path_buf(),
+    };
+
+    let target_format = format_opt.unwrap_or("csv");
+
+    for pdf in &pdf_files {
+        let file_stem = pdf
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("statement");
+        println!("\n📂 Batch extracting '{}'...", pdf.display());
+
+        match process_single_pdf(pdf, preset_str, password) {
+            Ok(table) => {
+                let (bytes, ext) = get_format_bytes(&table, target_format)?;
+                let out_file_name = format!("{}_converted.{}", file_stem, ext);
+                let dest_path = out_dir.join(out_file_name);
+                std::fs::write(&dest_path, &bytes)?;
+                println!(
+                    "  ✅ Saved {} extracted rows to: {}",
+                    table.rows.len(),
+                    dest_path.display()
+                );
+            }
+            Err(e) => {
+                eprintln!("  ❌ Failed to process '{}': {}", pdf.display(), e);
+            }
+        }
+    }
+
+    println!("\n🎉 Batch extraction complete!");
     Ok(())
 }
 
 fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 🏦 VaultParser CLI Interactive Wizard ===");
 
-    // 1. Get input PDF path
-    let mut input_pdf = String::new();
+    // 1. Get input PDF or directory path
+    let mut input_path = String::new();
     loop {
-        print!("📁 Enter path to input PDF bank statement: ");
+        print!("📁 Enter path to input PDF file or folder of PDFs: ");
         std::io::Write::flush(&mut std::io::stdout())?;
-        input_pdf.clear();
-        std::io::stdin().read_line(&mut input_pdf)?;
-        let trimmed = input_pdf.trim();
+        input_path.clear();
+        std::io::stdin().read_line(&mut input_path)?;
+        let trimmed = input_path.trim();
         if trimmed.is_empty() {
-            println!("Error: PDF path cannot be empty.");
+            println!("Error: Path cannot be empty.");
             continue;
         }
         let path = Path::new(trimmed);
         if !path.exists() {
-            println!("Error: File '{}' does not exist.", trimmed);
+            println!("Error: File or folder '{}' does not exist.", trimmed);
             continue;
         }
-        input_pdf = trimmed.to_string();
+        input_path = trimmed.to_string();
         break;
     }
 
@@ -205,11 +345,16 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
     println!("  9) ICICI Bank (icici)");
     println!("  10) Punjab National Bank (pnb)");
     println!("  11) Kotak Mahindra Bank (kotak)");
-    println!("  12) Custom JSON configuration file");
+    println!("  12) Axis Bank (axis)");
+    println!("  13) Bank of Baroda (bob)");
+    println!("  14) YES Bank (yes)");
+    println!("  15) IDFC FIRST Bank (idfc)");
+    println!("  16) IndusInd Bank (indusind)");
+    println!("  17) Custom JSON configuration file");
 
     let mut preset = String::new();
     loop {
-        print!("👉 Select option (1-12) [default: 1]: ");
+        print!("👉 Select option (1-17) [default: 1]: ");
         std::io::Write::flush(&mut std::io::stdout())?;
         preset.clear();
         std::io::stdin().read_line(&mut preset)?;
@@ -260,6 +405,26 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             "12" => {
+                preset = "axis".to_string();
+                break;
+            }
+            "13" => {
+                preset = "bob".to_string();
+                break;
+            }
+            "14" => {
+                preset = "yes".to_string();
+                break;
+            }
+            "15" => {
+                preset = "idfc".to_string();
+                break;
+            }
+            "16" => {
+                preset = "indusind".to_string();
+                break;
+            }
+            "17" => {
                 let mut json_path = String::new();
                 loop {
                     print!("📂 Enter path to custom JSON preset file: ");
@@ -285,7 +450,7 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
                     preset = trimmed.to_string();
                     break;
                 }
-                println!("Error: Invalid option. Please choose 1 to 12.");
+                println!("Error: Invalid option. Please choose 1 to 17.");
             }
         }
     }
@@ -304,9 +469,9 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 4. Get Output File path
+    // 4. Get Output File or Folder path
     print!(
-        "\n💾 Enter output path (e.g. output.xlsx, output.json, output.csv, or leave empty for stdout): "
+        "\n💾 Enter output path (e.g. output.xlsx, output.tsv, output.csv, output.json, folder path, or leave empty for stdout): "
     );
     std::io::Write::flush(&mut std::io::stdout())?;
     let mut output = String::new();
@@ -320,10 +485,22 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    run_extraction_process(
-        &input_pdf,
-        &preset,
-        output_opt.as_deref(),
-        password_opt.as_deref(),
-    )
+    let path = Path::new(&input_path);
+    if path.is_dir() {
+        run_batch_extraction(
+            path,
+            &preset,
+            output_opt.as_deref(),
+            None,
+            password_opt.as_deref(),
+        )
+    } else {
+        run_extraction_process(
+            &input_path,
+            &preset,
+            output_opt.as_deref(),
+            None,
+            password_opt.as_deref(),
+        )
+    }
 }

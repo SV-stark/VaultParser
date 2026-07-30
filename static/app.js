@@ -142,7 +142,9 @@ const canvasWrapper = document.getElementById('canvas-wrapper');
 const interactiveOverlay = document.getElementById('interactive-overlay');
 
 const statsBadge = document.getElementById('stats-badge');
+const btnCopyTsv = document.getElementById('btn-copy-tsv');
 const btnExportCsv = document.getElementById('btn-export-csv');
+const btnExportTsv = document.getElementById('btn-export-tsv');
 const btnExportXlsx = document.getElementById('btn-export-xlsx');
 const previewTable = document.getElementById('preview-table');
 const tableHeadersRow = document.getElementById('table-headers-row');
@@ -254,7 +256,43 @@ function bindEvents() {
   interactiveOverlay.addEventListener('dblclick', handleOverlayDoubleClick);
 
   // Export buttons
+  if (btnCopyTsv) {
+    btnCopyTsv.addEventListener('click', async () => {
+      if (!file) return;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('col_guides', JSON.stringify(colGuides));
+        formData.append('col_mappings', JSON.stringify(colMappings));
+        formData.append('y_tolerance', yTolerance);
+        formData.append('merge_multi_line', mergeMultiLine);
+        formData.append('skip_header_rows', skipHeaderRows);
+        formData.append('skip_footer_rows', skipFooterRows);
+        formData.append('filter_only_date', filterOnlyDate);
+        formData.append('filter_only_amount', filterOnlyAmount);
+        formData.append('format', 'tsv');
+        formData.append('manual_edits', JSON.stringify(manualEdits));
+        formData.append('deleted_rows', JSON.stringify(deletedRows));
+        formData.append('y_top_trim', yTopTrim);
+        formData.append('y_bottom_trim', yBottomTrim);
+        if (pdfPassword) formData.append('password', pdfPassword);
+
+        const res = await fetch('/api/convert', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error(await res.text());
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+
+        const origText = btnCopyTsv.textContent;
+        btnCopyTsv.textContent = '✅ Copied!';
+        setTimeout(() => { btnCopyTsv.textContent = origText; }, 2000);
+      } catch (err) {
+        console.error(err);
+        alert('Failed to copy TSV: ' + err.message);
+      }
+    });
+  }
   btnExportCsv.addEventListener('click', () => handleBulkExport('csv'));
+  if (btnExportTsv) btnExportTsv.addEventListener('click', () => handleBulkExport('tsv'));
   btnExportXlsx.addEventListener('click', () => handleBulkExport('xlsx'));
 }
 
@@ -999,10 +1037,15 @@ async function handleBulkExport(format) {
     // Receive blob stream
     const blob = await res.blob();
     const cleanFileName = file.name.replace(/\.[^/.]+$/, "");
-    const ext = format === 'xlsx' ? 'xlsx' : 'csv';
-    const mime = format === 'xlsx' 
-      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      : 'text/csv';
+    let ext = 'csv';
+    let mime = 'text/csv';
+    if (format === 'xlsx') {
+      ext = 'xlsx';
+      mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    } else if (format === 'tsv') {
+      ext = 'tsv';
+      mime = 'text/tab-separated-values';
+    }
       
     const downloadBlob = new Blob([blob], { type: mime });
     const link = document.createElement('a');

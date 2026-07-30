@@ -127,3 +127,77 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
 pub fn export_to_json(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     serde_json::to_vec_pretty(table).map_err(Into::into)
 }
+
+/// Converts an [`ExtractedTable`] into a UTF-8 TSV (Tab-Separated Values) formatted byte vector.
+///
+/// Only non-skipped columns (based on active indices) are exported.
+///
+/// # Examples
+/// ```
+/// use vaultparser::{ExtractedTable, PageRow, exporter};
+///
+/// let table = ExtractedTable {
+///     headers: vec!["DATE".to_string(), "DESCRIPTION".to_string()],
+///     active_indices: vec![0, 1],
+///     rows: vec![PageRow {
+///         id: "row-0".to_string(),
+///         y: 100.0,
+///         page: 1,
+///         cells: vec!["01/02/2023".to_string(), "Test".to_string()],
+///     }],
+/// };
+/// let tsv = exporter::export_to_tsv(&table).unwrap();
+/// let text = String::from_utf8(tsv).unwrap();
+/// assert!(text.contains("DATE\tDESCRIPTION"));
+/// assert!(text.contains("01/02/2023\tTest"));
+/// ```
+pub fn export_to_tsv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
+    let mut wtr = csv::WriterBuilder::new()
+        .delimiter(b'\t')
+        .from_writer(Vec::new());
+
+    // Write headers
+    wtr.write_record(&table.headers)
+        .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
+
+    // Write rows (only active indices)
+    for r in &table.rows {
+        let mut row_data = Vec::new();
+        for &idx in &table.active_indices {
+            if idx < r.cells.len() {
+                row_data.push(r.cells[idx].clone());
+            } else {
+                row_data.push(String::new());
+            }
+        }
+        wtr.write_record(row_data)
+            .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
+    }
+
+    wtr.into_inner()
+        .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::PageRow;
+
+    #[test]
+    fn test_export_to_tsv() {
+        let table = ExtractedTable {
+            headers: vec!["DATE".to_string(), "AMOUNT".to_string()],
+            active_indices: vec![0, 1],
+            rows: vec![PageRow {
+                id: "row-0".to_string(),
+                y: 100.0,
+                page: 1,
+                cells: vec!["2023-01-01".to_string(), "100.00".to_string()],
+            }],
+        };
+        let tsv_bytes = export_to_tsv(&table).unwrap();
+        let tsv_str = String::from_utf8(tsv_bytes).unwrap();
+        assert!(tsv_str.contains("DATE\tAMOUNT"));
+        assert!(tsv_str.contains("2023-01-01\t100.00"));
+    }
+}

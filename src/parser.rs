@@ -413,6 +413,16 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
         Ok(Some(crate::presets::BankPreset::Pnb))
     } else if full_text.contains("KOTAK MAHINDRA") || full_text.contains("KOTAK BANK") {
         Ok(Some(crate::presets::BankPreset::Kotak))
+    } else if full_text.contains("AXIS BANK") || full_text.contains("AXISBANK") {
+        Ok(Some(crate::presets::BankPreset::Axis))
+    } else if full_text.contains("BANK OF BARODA") || full_text.contains("BARODA") {
+        Ok(Some(crate::presets::BankPreset::Bob))
+    } else if full_text.contains("YES BANK") || full_text.contains("YESBANK") {
+        Ok(Some(crate::presets::BankPreset::Yes))
+    } else if full_text.contains("IDFC FIRST") || full_text.contains("IDFC BANK") {
+        Ok(Some(crate::presets::BankPreset::Idfc))
+    } else if full_text.contains("INDUSIND") {
+        Ok(Some(crate::presets::BankPreset::Indusind))
     } else {
         Ok(None)
     }

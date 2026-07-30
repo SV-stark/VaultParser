@@ -11,7 +11,7 @@ use tower_http::services::ServeDir;
 
 use vaultparser::{
     BankPreset, ExtractionConfig, detect_column_guides, detect_preset_from_file,
-    exporter::{export_to_csv, export_to_xlsx},
+    exporter::{export_to_csv, export_to_tsv, export_to_xlsx},
     extract_from_bytes,
 };
 
@@ -93,6 +93,11 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
                 BankPreset::Icici => "icici",
                 BankPreset::Pnb => "pnb",
                 BankPreset::Kotak => "kotak",
+                BankPreset::Axis => "axis",
+                BankPreset::Bob => "bob",
+                BankPreset::Yes => "yes",
+                BankPreset::Idfc => "idfc",
+                BankPreset::Indusind => "indusind",
             };
             (Some(key.to_string()), Some(preset.name().to_string()))
         }
@@ -335,6 +340,27 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
         );
 
         Ok((StatusCode::OK, res_headers, csv_data).into_response())
+    } else if format_type == "tsv" {
+        let tsv_data = export_to_tsv(&extracted_table).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("TSV export failed: {}", e),
+            )
+        })?;
+
+        let mut res_headers = HeaderMap::new();
+        res_headers.insert(
+            header::CONTENT_TYPE,
+            "text/tab-separated-values".parse().unwrap(),
+        );
+        res_headers.insert(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=converted_statement.tsv"
+                .parse()
+                .unwrap(),
+        );
+
+        Ok((StatusCode::OK, res_headers, tsv_data).into_response())
     } else {
         let json_response = serde_json::json!({
             "headers": extracted_table.headers,

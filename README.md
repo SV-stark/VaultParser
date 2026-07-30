@@ -23,11 +23,18 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
     *   ICICI Bank
     *   Punjab National Bank (PNB)
     *   Kotak Mahindra Bank
+    *   Axis Bank
+    *   Bank of Baroda (BOB)
+    *   YES Bank
+    *   IDFC FIRST Bank
+    *   IndusInd Bank
 *   **✨ Interactive Web UI**: Includes a web-based visual dashboard where you can:
     *   Drag, double-click to add, or right-click to delete vertical column guides over the PDF canvas.
     *   Crop header/footer regions in real-time.
     *   Directly override cell values or delete rows with coordinates that persist across exports.
-*   **💾 Multi-format Exporters**: Bulk compile transaction history to `.xlsx` (Excel) or `.csv`.
+    *   Instant **Copy TSV to Clipboard** for pasting directly into Excel / Google Sheets.
+*   **💾 Multi-format Exporters**: Bulk compile transaction history to `.xlsx` (Excel), `.csv`, `.tsv`, or `.json`.
+*   **⚡ Batch Processing & Format Override**: Process whole directories of PDF statements in batch mode or force export formats using `--format / -f`.
 
 ---
 
@@ -40,11 +47,11 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
 │   ├── presets.rs      # Native bank column coordinate templates
 │   ├── parser.rs       # Core Y-coordinate clustering engine
 │   ├── models.rs       # Word, Row, and Table structures
-│   ├── exporter.rs     # CSV & XLSX exporting utilities
+│   ├── exporter.rs     # CSV, TSV, XLSX & JSON exporting utilities
 │   ├── error.rs        # Custom library error handling
 │   ├── main.rs         # Local web UI server binary
 │   └── bin/
-│       └── vpcli.rs    # Command line tool binary
+│       └── vpcli.rs    # Command line tool binary (supports batch mode & --format)
 ├── static/             # Frontend assets (HTML, style.css, app.js, pdf.js)
 ├── temp/               # Temporary parsing folder (automatically cleaned up)
 └── Cargo.toml          # Cargo package file
@@ -83,26 +90,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 You can run the extraction directly from the command line without opening a browser. The CLI utilizes `clap` for command-line parsing and option handling:
 
 ```bash
-# Print CSV results to stdout:
+# Print results to stdout (default CSV, or use -f tsv / -f json):
 cargo run --release --bin vpcli -- <input-pdf> <bank-preset> [options]
 
-# Save CSV or Excel (.xlsx) results directly to a file:
+# Save CSV, TSV, Excel (.xlsx), or JSON results directly to a file:
 cargo run --release --bin vpcli -- <input-pdf> <bank-preset> [output-file] [options]
+
+# Batch process an entire folder of PDF statements:
+cargo run --release --bin vpcli -- <input-dir> <bank-preset> --format tsv --output <output-dir>
 ```
 
 ### Examples:
 ```bash
-# Output HDFC statement directly to stdout
-cargo run --release --bin vpcli -- "hdfc bank.pdf" hdfc
+# Output HDFC statement directly to stdout as TSV
+cargo run --release --bin vpcli -- "hdfc bank.pdf" hdfc -f tsv
 
-# Save Union Bank statement output to statement.csv
-cargo run --release --bin vpcli -- "statement.pdf" union output.csv
+# Save Union Bank statement output to statement.tsv
+cargo run --release --bin vpcli -- "statement.pdf" union output.tsv
 
 # Save Union Bank statement output directly to Excel
 cargo run --release --bin vpcli -- "statement.pdf" union output.xlsx
 
 # Auto-detect bank preset, decrypt with password, and save output
 cargo run --release --bin vpcli -- secure_statement.pdf auto output.csv --password "secret123"
+
+# Batch process a folder of PDFs into TSV format
+cargo run --release --bin vpcli -- ./statements/ sbi -f tsv --output ./converted/
 ```
 
 ---
