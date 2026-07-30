@@ -34,6 +34,9 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
     *   Directly override cell values or delete rows with coordinates that persist across exports.
     *   Instant **Copy TSV to Clipboard** for pasting directly into Excel / Google Sheets.
 *   **💾 Multi-format Exporters**: Bulk compile transaction history to `.xlsx` (Excel), `.csv`, `.tsv`, or `.json`.
+*   **📊 Automated Totals Row**: Automatically calculates total debit, credit, and row count summaries in exported ledgers.
+*   **🏷️ Transaction Categorization Engine**: Enable with `--categorize / -c` to auto-tag transactions into categories (`UPI & Transfers`, `Salary & Income`, `ATM & Cash`, etc.). Unrecognized transactions are assigned to `Suspense`.
+*   **📅 Date Range Filtering**: Filter transaction statements by date range using `--from <YYYY-MM-DD>` and `--to <YYYY-MM-DD>`.
 *   **⚡ Batch Processing & Format Override**: Process whole directories of PDF statements in batch mode or force export formats using `--format / -f`.
 
 ---
@@ -45,13 +48,13 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
 │   ├── lib.rs          # Core library entry point
 │   ├── config.rs       # Extraction parameter builder (ExtractionConfig)
 │   ├── presets.rs      # Native bank column coordinate templates
-│   ├── parser.rs       # Core Y-coordinate clustering engine
+│   ├── parser.rs       # Core Y-coordinate clustering engine & categorization
 │   ├── models.rs       # Word, Row, and Table structures
 │   ├── exporter.rs     # CSV, TSV, XLSX & JSON exporting utilities
 │   ├── error.rs        # Custom library error handling
 │   ├── main.rs         # Local web UI server binary
 │   └── bin/
-│       └── vpcli.rs    # Command line tool binary (supports batch mode & --format)
+│       └── vpcli.rs    # Command line tool binary (supports batch mode, categorization, date filtering)
 ├── static/             # Frontend assets (HTML, style.css, app.js, pdf.js)
 ├── temp/               # Temporary parsing folder (automatically cleaned up)
 └── Cargo.toml          # Cargo package file
@@ -69,7 +72,11 @@ use vaultparser::exporter::export_to_csv;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Load HDFC preset column coordinates
-    let config = BankPreset::Hdfc.config();
+    let config = ExtractionConfig::builder()
+        .categorize(true)
+        .from_date(Some("2023-01-01".to_string()))
+        .to_date(Some("2023-03-31".to_string()))
+        .build()?;
 
     // 2. Natively extract tabular data from statement
     let table = extract_from_file("statement.pdf", &config)?;
@@ -96,26 +103,29 @@ cargo run --release --bin vpcli -- <input-pdf> <bank-preset> [options]
 # Save CSV, TSV, Excel (.xlsx), or JSON results directly to a file:
 cargo run --release --bin vpcli -- <input-pdf> <bank-preset> [output-file] [options]
 
+# Extract with transaction categorization enabled:
+cargo run --release --bin vpcli -- statement.pdf hdfc output.xlsx --categorize
+
+# Extract with date range filtering:
+cargo run --release --bin vpcli -- statement.pdf auto output.tsv --from 2023-01-01 --to 2023-03-31
+
 # Batch process an entire folder of PDF statements:
 cargo run --release --bin vpcli -- <input-dir> <bank-preset> --format tsv --output <output-dir>
 ```
 
 ### Examples:
 ```bash
-# Output HDFC statement directly to stdout as TSV
-cargo run --release --bin vpcli -- "hdfc bank.pdf" hdfc -f tsv
+# Output HDFC statement directly to stdout as TSV with categorization
+cargo run --release --bin vpcli -- "hdfc bank.pdf" hdfc -f tsv --categorize
 
 # Save Union Bank statement output to statement.tsv
 cargo run --release --bin vpcli -- "statement.pdf" union output.tsv
 
-# Save Union Bank statement output directly to Excel
-cargo run --release --bin vpcli -- "statement.pdf" union output.xlsx
-
 # Auto-detect bank preset, decrypt with password, and save output
 cargo run --release --bin vpcli -- secure_statement.pdf auto output.csv --password "secret123"
 
-# Batch process a folder of PDFs into TSV format
-cargo run --release --bin vpcli -- ./statements/ sbi -f tsv --output ./converted/
+# Batch process a folder of PDFs into TSV format with categorization
+cargo run --release --bin vpcli -- ./statements/ sbi -f tsv --categorize --output ./converted/
 ```
 
 ---

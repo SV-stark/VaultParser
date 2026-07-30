@@ -35,6 +35,12 @@ pub struct ExtractionConfig {
     pub deleted_rows: HashMap<String, HashMap<String, bool>>,
     /// Optional password to decrypt the PDF document
     pub password: Option<String>,
+    /// Automatically categorize transactions into a Category column (default: false)
+    pub categorize: bool,
+    /// Optional start date filter (inclusive) in YYYY-MM-DD or DD-MM-YYYY format
+    pub from_date: Option<String>,
+    /// Optional end date filter (inclusive) in YYYY-MM-DD or DD-MM-YYYY format
+    pub to_date: Option<String>,
 }
 
 impl Default for ExtractionConfig {
@@ -53,6 +59,9 @@ impl Default for ExtractionConfig {
             manual_edits: HashMap::new(),
             deleted_rows: HashMap::new(),
             password: None,
+            categorize: false,
+            from_date: None,
+            to_date: None,
         }
     }
 }
@@ -220,6 +229,24 @@ impl ExtractionConfigBuilder {
     /// Sets the decryption password for the PDF document.
     pub fn password(mut self, password: Option<String>) -> Self {
         self.config.password = password;
+        self
+    }
+
+    /// Configures whether to automatically categorize transactions (default: false).
+    pub fn categorize(mut self, categorize: bool) -> Self {
+        self.config.categorize = categorize;
+        self
+    }
+
+    /// Sets the inclusive start date filter (e.g. "2023-01-01" or "01-01-2023").
+    pub fn from_date(mut self, from_date: Option<String>) -> Self {
+        self.config.from_date = from_date;
+        self
+    }
+
+    /// Sets the inclusive end date filter (e.g. "2023-12-31" or "31-12-2023").
+    pub fn to_date(mut self, to_date: Option<String>) -> Self {
+        self.config.to_date = to_date;
         self
     }
 

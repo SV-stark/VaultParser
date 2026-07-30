@@ -428,6 +428,113 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
     }
 }
 
+fn parse_date_naive(s: &str) -> Option<chrono::NaiveDate> {
+    let clean = s.trim();
+    if clean.is_empty() {
+        return None;
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%Y-%m-%d") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d-%m-%Y") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d/%m/%Y") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%Y/%m/%d") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d-%b-%Y") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d %b %Y") {
+        return Some(d);
+    }
+    None
+}
+
+pub fn classify_transaction(narrative: &str) -> &'static str {
+    let text = narrative.to_uppercase();
+    if text.contains("UPI")
+        || text.contains("PAYTM")
+        || text.contains("GPAY")
+        || text.contains("GPH")
+        || text.contains("PHONEPE")
+        || text.contains("IMPS")
+        || text.contains("NEFT")
+        || text.contains("RTGS")
+        || text.contains("BHIM")
+        || text.contains("RAZORPAY")
+    {
+        "UPI & Transfers"
+    } else if text.contains("SALARY") || text.contains("PAYROLL") || text.contains("STIPEND") {
+        "Salary & Income"
+    } else if text.contains("INTEREST")
+        || text.contains("DIVIDEND")
+        || text.contains("INT PD")
+        || text.contains("INT.PD")
+        || text.contains("CREDIT INT")
+    {
+        "Interest & Dividends"
+    } else if text.contains("MUTUAL")
+        || text.contains("ZERODHA")
+        || text.contains("GROWW")
+        || text.contains("SIP")
+        || text.contains("STOCKS")
+        || text.contains("SECURITIES")
+        || text.contains("FUNDS")
+        || text.contains("NAV ")
+    {
+        "Investments"
+    } else if text.contains("ATM")
+        || text.contains("CASH WDL")
+        || text.contains("CASH WITHDRAWAL")
+        || text.contains("ATM-WDL")
+        || text.contains("CASH DEP")
+    {
+        "ATM & Cash"
+    } else if text.contains("AMAZON")
+        || text.contains("FLIPKART")
+        || text.contains("POS ")
+        || text.contains("E-COMMERCE")
+        || text.contains("MERCHANT")
+        || text.contains("RETAIL")
+        || text.contains("MYNTRA")
+    {
+        "Shopping & Merchants"
+    } else if text.contains("SWIGGY")
+        || text.contains("ZOMATO")
+        || text.contains("DUNZO")
+        || text.contains("DINE")
+        || text.contains("RESTAURANT")
+        || text.contains("FOOD")
+    {
+        "Food & Dining"
+    } else if text.contains("ELECTRICITY")
+        || text.contains("WATER")
+        || text.contains("BROADBAND")
+        || text.contains("AIRTEL")
+        || text.contains("JIO")
+        || text.contains("RECHARGE")
+        || text.contains("GAS")
+    {
+        "Bills & Utilities"
+    } else if text.contains("CHARGES")
+        || text.contains("GST")
+        || text.contains("FEE")
+        || text.contains("TAX")
+        || text.contains("PENALTY")
+        || text.contains("ANNUAL FEE")
+        || text.contains("CHQ RET")
+        || text.contains("SMS CHARGES")
+    {
+        "Bank Fees & Tax"
+    } else {
+        "Suspense"
+    }
+}
+
 /// Primary function to extract tabular data from a PDF file path
 pub fn extract_from_file<P: AsRef<Path>>(
     pdf_path: P,
@@ -651,6 +758,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
             {
                 keep = false;
             }
+
             if config.filter_only_amount {
                 let has_amount = amount_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
                 let has_debit = debit_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
@@ -660,6 +768,23 @@ pub fn extract_from_file<P: AsRef<Path>>(
                     keep = false;
                 }
             }
+
+            // Date Range Filtering
+            let from_naive = config.from_date.as_deref().and_then(parse_date_naive);
+            let to_naive = config.to_date.as_deref().and_then(parse_date_naive);
+
+            if (from_naive.is_some() || to_naive.is_some()) && date_idx.is_some() {
+                let d_idx = date_idx.unwrap_or(0);
+                if let Some(row_d) = row.cells.get(d_idx).and_then(|c| parse_date_naive(c)) {
+                    if from_naive.is_some_and(|from_d| row_d < from_d) {
+                        keep = false;
+                    }
+                    if to_naive.is_some_and(|to_d| row_d > to_d) {
+                        keep = false;
+                    }
+                }
+            }
+
             if keep {
                 filtered_rows.push(row);
             }
@@ -675,6 +800,29 @@ pub fn extract_from_file<P: AsRef<Path>>(
         if m != "skip" {
             active_indices.push(idx);
             headers.push(m.to_uppercase());
+        }
+    }
+
+    // Categorization Tagging Engine
+    if config.categorize {
+        let desc_col_idx = config
+            .col_mappings
+            .iter()
+            .position(|m| m.to_lowercase() == "description" || m.to_lowercase() == "narrative")
+            .unwrap_or(1);
+
+        headers.push("CATEGORY".to_string());
+        let cat_col_index = config.col_mappings.len();
+        active_indices.push(cat_col_index);
+
+        for row in &mut all_rows {
+            let narrative = if desc_col_idx < row.cells.len() {
+                &row.cells[desc_col_idx]
+            } else {
+                ""
+            };
+            let category = classify_transaction(narrative);
+            row.cells.push(category.to_string());
         }
     }
 
@@ -909,5 +1057,33 @@ mod tests {
             .y_bottom_trim(0.3)
             .build();
         assert!(config_res3.is_err());
+    }
+
+    #[test]
+    fn test_classify_transaction() {
+        assert_eq!(
+            classify_transaction("UPI-SWIGGY-BANGALORE"),
+            "UPI & Transfers"
+        );
+        assert_eq!(classify_transaction("SALARY FOR JULY"), "Salary & Income");
+        assert_eq!(classify_transaction("ATM CASH WITHDRAWAL"), "ATM & Cash");
+        assert_eq!(
+            classify_transaction("AMAZON INDIA PAY"),
+            "Shopping & Merchants"
+        );
+        assert_eq!(classify_transaction("ZOMATO ORDER #123"), "Food & Dining");
+        assert_eq!(
+            classify_transaction("AIRTEL BROADBAND BILL"),
+            "Bills & Utilities"
+        );
+        assert_eq!(
+            classify_transaction("CREDIT INTEREST PAID"),
+            "Interest & Dividends"
+        );
+        assert_eq!(classify_transaction("ZERODHA BROKING SIP"), "Investments");
+        assert_eq!(
+            classify_transaction("RANDOM UNKNOWN CHARGE 9999"),
+            "Suspense"
+        );
     }
 }

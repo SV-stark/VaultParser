@@ -45,6 +45,46 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
             .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
     }
 
+    // Append summary row if table has rows
+    if !table.rows.is_empty() {
+        let mut summary_row_data = Vec::new();
+        for (col_idx, &active_idx) in table.active_indices.iter().enumerate() {
+            if col_idx == 0 {
+                summary_row_data.push(format!("TOTALS ({} rows)", table.rows.len()));
+                continue;
+            }
+            let header_upper = table
+                .headers
+                .get(col_idx)
+                .map(|h| h.to_uppercase())
+                .unwrap_or_default();
+
+            let is_number_col = header_upper.contains("DEBIT")
+                || header_upper.contains("CREDIT")
+                || header_upper.contains("BALANCE")
+                || header_upper.contains("AMOUNT")
+                || header_upper.contains("WITHDRAWAL")
+                || header_upper.contains("DEPOSIT");
+
+            let mut sum = 0.0;
+            let mut count = 0;
+            for r in &table.rows {
+                if let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c)) {
+                    sum += val;
+                    count += 1;
+                }
+            }
+
+            if is_number_col && count > 0 {
+                summary_row_data.push(format!("{:.2}", sum));
+            } else {
+                summary_row_data.push(String::new());
+            }
+        }
+        wtr.write_record(summary_row_data)
+            .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
+    }
+
     wtr.into_inner()
         .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))
 }
@@ -256,6 +296,76 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
         }
     }
 
+    // Write Summary & Totals Row if rows exist
+    if !table.rows.is_empty() {
+        let summary_row = (table.rows.len() + 2) as u32;
+        worksheet
+            .set_row_height(summary_row, 24.0)
+            .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
+
+        let summary_bg = Color::RGB(0xCBD5E1); // Slate gray fill
+        let summary_label_fmt = Format::new()
+            .set_bold()
+            .set_background_color(summary_bg)
+            .set_align(FormatAlign::Left)
+            .set_align(FormatAlign::VerticalCenter)
+            .set_border_top(FormatBorder::Thin)
+            .set_border_bottom(FormatBorder::Double)
+            .set_border_color(Color::RGB(0x64748B));
+
+        let summary_num_fmt = Format::new()
+            .set_bold()
+            .set_num_format("#,##0.00")
+            .set_background_color(summary_bg)
+            .set_align(FormatAlign::Right)
+            .set_align(FormatAlign::VerticalCenter)
+            .set_border_top(FormatBorder::Thin)
+            .set_border_bottom(FormatBorder::Double)
+            .set_border_color(Color::RGB(0x64748B));
+
+        let total_label = format!("TOTALS ({} rows)", table.rows.len());
+        worksheet
+            .write_string_with_format(summary_row, 0, &total_label, &summary_label_fmt)
+            .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
+
+        for (col_idx, &active_idx) in table.active_indices.iter().enumerate() {
+            if col_idx == 0 {
+                continue;
+            }
+            let header_upper = table
+                .headers
+                .get(col_idx)
+                .map(|h| h.to_uppercase())
+                .unwrap_or_default();
+
+            let is_number_col = header_upper.contains("DEBIT")
+                || header_upper.contains("CREDIT")
+                || header_upper.contains("BALANCE")
+                || header_upper.contains("AMOUNT")
+                || header_upper.contains("WITHDRAWAL")
+                || header_upper.contains("DEPOSIT");
+
+            let mut sum = 0.0;
+            let mut count = 0;
+            for r in &table.rows {
+                if let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c)) {
+                    sum += val;
+                    count += 1;
+                }
+            }
+
+            if is_number_col && count > 0 {
+                worksheet
+                    .write_number_with_format(summary_row, col_idx as u16, sum, &summary_num_fmt)
+                    .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
+            } else {
+                worksheet
+                    .write_string_with_format(summary_row, col_idx as u16, "", &summary_label_fmt)
+                    .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
+            }
+        }
+    }
+
     // Set column widths with dynamic padding
     for (col_idx, &width) in col_widths.iter().enumerate() {
         let final_width = (width + 4).clamp(12, 65) as f64;
@@ -339,6 +449,46 @@ pub fn export_to_tsv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
             }
         }
         wtr.write_record(row_data)
+            .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
+    }
+
+    // Append summary row if table has rows
+    if !table.rows.is_empty() {
+        let mut summary_row_data = Vec::new();
+        for (col_idx, &active_idx) in table.active_indices.iter().enumerate() {
+            if col_idx == 0 {
+                summary_row_data.push(format!("TOTALS ({} rows)", table.rows.len()));
+                continue;
+            }
+            let header_upper = table
+                .headers
+                .get(col_idx)
+                .map(|h| h.to_uppercase())
+                .unwrap_or_default();
+
+            let is_number_col = header_upper.contains("DEBIT")
+                || header_upper.contains("CREDIT")
+                || header_upper.contains("BALANCE")
+                || header_upper.contains("AMOUNT")
+                || header_upper.contains("WITHDRAWAL")
+                || header_upper.contains("DEPOSIT");
+
+            let mut sum = 0.0;
+            let mut count = 0;
+            for r in &table.rows {
+                if let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c)) {
+                    sum += val;
+                    count += 1;
+                }
+            }
+
+            if is_number_col && count > 0 {
+                summary_row_data.push(format!("{:.2}", sum));
+            } else {
+                summary_row_data.push(String::new());
+            }
+        }
+        wtr.write_record(summary_row_data)
             .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
     }
 

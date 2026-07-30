@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-07-30
+
+### Added
+- Added automated **Summary & Totals Row** in `.xlsx` (Excel), CSV, and TSV exporters calculating total debits, credits, amounts, and row count.
+- Added **Transaction Categorization & Tagging Engine** with `--categorize / -c` CLI flag and `config.categorize` setting (defaults off). Tags transactions into `UPI & Transfers`, `Salary & Income`, `Interest & Dividends`, `Investments`, `ATM & Cash`, `Shopping & Merchants`, `Food & Dining`, `Bills & Utilities`, `Bank Fees & Tax`, and `Suspense` (for unmatched transactions).
+- Added **Date Range Filtering** via `--from <YYYY-MM-DD>` and `--to <YYYY-MM-DD>` CLI flags and `from_date` / `to_date` config builder methods.
+
 ## [0.3.1] - 2026-07-30
 
 ### Changed

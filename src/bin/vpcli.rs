@@ -34,6 +34,18 @@ struct Args {
     /// Force directory batch processing mode
     #[arg(short, long)]
     dir: bool,
+
+    /// Automatically categorize transactions into a 'Category' column (default: false)
+    #[arg(short = 'c', long)]
+    categorize: bool,
+
+    /// Inclusive start date filter (YYYY-MM-DD or DD-MM-YYYY)
+    #[arg(long = "from")]
+    from_date: Option<String>,
+
+    /// Inclusive end date filter (YYYY-MM-DD or DD-MM-YYYY)
+    #[arg(long = "to")]
+    to_date: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,6 +69,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     args.output.as_deref(),
                     args.format.as_deref(),
                     args.password.as_deref(),
+                    args.categorize,
+                    args.from_date.as_deref(),
+                    args.to_date.as_deref(),
                 )?;
             } else {
                 run_extraction_process(
@@ -65,6 +80,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     args.output.as_deref(),
                     args.format.as_deref(),
                     args.password.as_deref(),
+                    args.categorize,
+                    args.from_date.as_deref(),
+                    args.to_date.as_deref(),
                 )?;
             }
         }
@@ -109,13 +127,17 @@ fn infer_format_from_str(s: &str) -> Option<&'static str> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_preset_config(
     pdf_path: &Path,
     preset_str: &str,
     password: Option<&str>,
+    categorize: bool,
+    from_date: Option<&str>,
+    to_date: Option<&str>,
     spinner: &ProgressBar,
 ) -> Result<ExtractionConfig, Box<dyn std::error::Error>> {
-    if preset_str.to_lowercase() == "auto" {
+    let mut config = if preset_str.to_lowercase() == "auto" {
         spinner.set_message("Analyzing PDF to auto-detect bank preset...");
         if let Some(detected_preset) = detect_preset_from_file(pdf_path, password)? {
             spinner.println(format!(
@@ -124,7 +146,7 @@ fn load_preset_config(
             ));
             let mut c = detected_preset.config();
             c.password = password.map(String::from);
-            Ok(c)
+            c
         } else {
             spinner.println("No known bank preset matched. Falling back to auto-detecting column guide boundaries...");
             spinner.set_message("Auto-detecting column boundaries...");
@@ -140,8 +162,7 @@ fn load_preset_config(
                 .col_guides(guides)
                 .col_mappings(mappings)
                 .password(password.map(String::from))
-                .build()
-                .map_err(Into::into)
+                .build()?
         }
     } else if preset_str.to_lowercase().ends_with(".json") || Path::new(preset_str).exists() {
         spinner.set_message(format!(
@@ -151,7 +172,7 @@ fn load_preset_config(
         let content = std::fs::read_to_string(preset_str)?;
         let mut c: ExtractionConfig = serde_json::from_str(&content)?;
         c.password = password.map(String::from);
-        Ok(c)
+        c
     } else {
         let preset = match BankPreset::from_str(preset_str) {
             Some(p) => p,
@@ -168,14 +189,22 @@ fn load_preset_config(
         spinner.println(format!("Loading configuration for {}...", preset.name()));
         let mut c = preset.config();
         c.password = password.map(String::from);
-        Ok(c)
-    }
+        c
+    };
+
+    config.categorize = categorize;
+    config.from_date = from_date.map(String::from);
+    config.to_date = to_date.map(String::from);
+    Ok(config)
 }
 
 fn process_single_pdf(
     pdf_path: &Path,
     preset_str: &str,
     password: Option<&str>,
+    categorize: bool,
+    from_date: Option<&str>,
+    to_date: Option<&str>,
 ) -> Result<ExtractedTable, Box<dyn std::error::Error>> {
     let spinner = ProgressBar::new_spinner();
     if let Ok(style) = ProgressStyle::default_spinner()
@@ -186,7 +215,9 @@ fn process_single_pdf(
     }
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
-    let config = load_preset_config(pdf_path, preset_str, password, &spinner)?;
+    let config = load_preset_config(
+        pdf_path, preset_str, password, categorize, from_date, to_date, &spinner,
+    )?;
     spinner.set_message(format!(
         "Extracting transaction table natively from '{}'...",
         pdf_path.display()
@@ -196,12 +227,16 @@ fn process_single_pdf(
     Ok(table)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_extraction_process(
     input_pdf: &str,
     preset_str: &str,
     output: Option<&str>,
     format_override: Option<&str>,
     password: Option<&str>,
+    categorize: bool,
+    from_date: Option<&str>,
+    to_date: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pdf_path = Path::new(input_pdf);
     if !pdf_path.exists() {
@@ -209,7 +244,9 @@ fn run_extraction_process(
         std::process::exit(1);
     }
 
-    let table = process_single_pdf(pdf_path, preset_str, password)?;
+    let table = process_single_pdf(
+        pdf_path, preset_str, password, categorize, from_date, to_date,
+    )?;
 
     let target_format = format_override
         .or_else(|| output.and_then(infer_format_from_str))
@@ -234,12 +271,16 @@ fn run_extraction_process(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_batch_extraction(
     dir_path: &Path,
     preset_str: &str,
     output_path: Option<&str>,
     format_opt: Option<&str>,
     password: Option<&str>,
+    categorize: bool,
+    from_date: Option<&str>,
+    to_date: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let entries = std::fs::read_dir(dir_path)?;
     let mut pdf_files: Vec<PathBuf> = Vec::new();
@@ -286,7 +327,7 @@ fn run_batch_extraction(
             .unwrap_or("statement");
         println!("\n📂 Batch extracting '{}'...", pdf.display());
 
-        match process_single_pdf(pdf, preset_str, password) {
+        match process_single_pdf(pdf, preset_str, password, categorize, from_date, to_date) {
             Ok(table) => {
                 let (bytes, ext) = get_format_bytes(&table, target_format)?;
                 let out_file_name = format!("{}_converted.{}", file_stem, ext);
@@ -493,6 +534,9 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
             output_opt.as_deref(),
             None,
             password_opt.as_deref(),
+            false,
+            None,
+            None,
         )
     } else {
         run_extraction_process(
@@ -501,6 +545,9 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
             output_opt.as_deref(),
             None,
             password_opt.as_deref(),
+            false,
+            None,
+            None,
         )
     }
 }

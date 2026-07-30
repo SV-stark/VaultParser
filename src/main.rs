@@ -134,6 +134,9 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
     let mut y_top_trim = 0.0;
     let mut y_bottom_trim = 1.0;
     let mut password = None;
+    let mut categorize = false;
+    let mut from_date = None;
+    let mut to_date = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -244,6 +247,31 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
                     password = Some(p);
                 }
             }
+            "categorize" => {
+                let c = field
+                    .text()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                categorize = c.parse::<bool>().unwrap_or(false);
+            }
+            "from_date" => {
+                let d = field
+                    .text()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                if !d.trim().is_empty() {
+                    from_date = Some(d.trim().to_string());
+                }
+            }
+            "to_date" => {
+                let d = field
+                    .text()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                if !d.trim().is_empty() {
+                    to_date = Some(d.trim().to_string());
+                }
+            }
             _ => {}
         }
     }
@@ -289,6 +317,9 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
         .manual_edits(edits_data)
         .deleted_rows(deletes_data)
         .password(password)
+        .categorize(categorize)
+        .from_date(from_date)
+        .to_date(to_date)
         .build()
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid config: {}", e)))?;
 
