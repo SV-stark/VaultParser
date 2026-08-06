@@ -3,7 +3,10 @@
 
 # Development temp directory
 /temp
-*.pdf.decrypted.pdf
+
+# PDF files (ignore all PDFs in root and subdirectories)
+*.pdf
+**/*.pdf
 
 # OS/System files
 .DS_Store
@@ -18,8 +21,6 @@ Thumbs.db
 # Logs
 *.log
 
-/RKS USER CHARGES bank.pdf
 /rks_output.csv
 /RKS USER CHARGES bank.xlsx
 /RKS USER CHARGES bank.json
-

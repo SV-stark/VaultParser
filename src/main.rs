@@ -98,6 +98,7 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
                 BankPreset::Yes => "yes",
                 BankPreset::Idfc => "idfc",
                 BankPreset::Indusind => "indusind",
+                BankPreset::Hpgb => "hpgb",
             };
             (Some(key.to_string()), Some(preset.name().to_string()))
         }

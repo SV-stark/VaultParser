@@ -17,7 +17,7 @@ struct Args {
     /// Path to input statement PDF file or directory containing PDFs
     input_path: Option<String>,
 
-    /// Bank preset name (e.g. hdfc, sbi, canara, union, uco, indian, hpscb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or JSON preset file)
+    /// Bank preset name (e.g. hdfc, sbi, canara, union, uco, indian, hpscb, hpgb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or JSON preset file)
     preset: Option<String>,
 
     /// Optional output file or directory path. If omitted, prints results to stdout.
@@ -180,7 +180,7 @@ fn load_preset_config(
                 spinner.finish_and_clear();
                 eprintln!("Error: Unknown bank preset '{}'.", preset_str);
                 eprintln!(
-                    "Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file"
+                    "Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, hpgb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file"
                 );
                 std::process::exit(1);
             }
@@ -391,7 +391,8 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
     println!("  14) YES Bank (yes)");
     println!("  15) IDFC FIRST Bank (idfc)");
     println!("  16) IndusInd Bank (indusind)");
-    println!("  17) Custom JSON configuration file");
+    println!("  17) Himachal Pradesh Gramin Bank (hpgb)");
+    println!("  18) Custom JSON configuration file");
 
     let mut preset = String::new();
     loop {
@@ -466,6 +467,10 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             "17" => {
+                preset = "hpgb".to_string();
+                break;
+            }
+            "18" => {
                 let mut json_path = String::new();
                 loop {
                     print!("📂 Enter path to custom JSON preset file: ");
@@ -491,7 +496,7 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
                     preset = trimmed.to_string();
                     break;
                 }
-                println!("Error: Invalid option. Please choose 1 to 17.");
+                println!("Error: Invalid option. Please choose 1 to 18.");
             }
         }
     }

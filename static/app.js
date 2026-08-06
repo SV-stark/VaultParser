@@ -45,6 +45,11 @@ const PRESETS = {
     guides: [0.08, 0.16, 0.38, 0.41, 0.65, 0.74, 0.82],
     mappings: ['s_no', 'date', 'value_date', 'chq_no', 'description', 'debit', 'credit', 'balance']
   },
+  hpgb: {
+    name: '🏦 Himachal Pradesh Gramin Bank',
+    guides: [0.06, 0.21, 0.45, 0.58, 0.74],
+    mappings: ['date', 'reference', 'description', 'debit', 'credit', 'balance']
+  },
   icici: {
     name: '🏦 ICICI Bank',
     guides: [0.08, 0.44, 0.55, 0.62, 0.88],
@@ -479,6 +484,7 @@ async function renderPDFPage(pageNum) {
         else if (fullText.includes('UNION BANK')) matchedPreset = 'union';
         else if (fullText.includes('UCO BANK')) matchedPreset = 'uco';
         else if (fullText.includes('INDIAN BANK') || fullText.includes('ALLAHABAD')) matchedPreset = 'indian';
+        else if (fullText.includes('HIMACHAL PRADESH GRAMIN') || fullText.includes('HPGB')) matchedPreset = 'hpgb';
         else if (fullText.includes('H P STATE CO-OP') || fullText.includes('CO-OPERATIVE BANK') || fullText.includes('HPSCB')) matchedPreset = 'hpscb';
         else if (fullText.includes('ICICI BANK')) matchedPreset = 'icici';
         else if (fullText.includes('PUNJAB NATIONAL BANK') || fullText.includes('PNB ')) matchedPreset = 'pnb';

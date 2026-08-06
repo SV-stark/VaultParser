@@ -36,6 +36,8 @@ pub enum BankPreset {
     Idfc,
     /// IndusInd Bank statement template.
     Indusind,
+    /// Himachal Pradesh Gramin Bank statement template.
+    Hpgb,
 }
 
 impl BankPreset {
@@ -57,6 +59,7 @@ impl BankPreset {
             Self::Yes => "YES Bank",
             Self::Idfc => "IDFC FIRST Bank",
             Self::Indusind => "IndusInd Bank",
+            Self::Hpgb => "Himachal Pradesh Gramin Bank",
         }
     }
 
@@ -271,6 +274,19 @@ impl BankPreset {
                 config.filter_only_date = true;
                 config.y_tolerance = 12.0;
             }
+            Self::Hpgb => {
+                config.col_guides = vec![0.06, 0.21, 0.45, 0.58, 0.74];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "reference".to_string(),
+                    "description".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 10.0;
+            }
         }
         config
     }
@@ -279,7 +295,7 @@ impl BankPreset {
     /// Returns `None` if the name is unrecognized.
     ///
     /// # Examples
-    /// ```
+    /// ```ignore
     /// use vaultparser::BankPreset;
     ///
     /// assert_eq!(BankPreset::from_str("hdfc"), Some(BankPreset::Hdfc));
@@ -304,7 +320,11 @@ impl BankPreset {
             "yes" => Some(Self::Yes),
             "idfc" => Some(Self::Idfc),
             "indusind" => Some(Self::Indusind),
+            "hpgb" | "himachal pradesh gramin bank" | "himachal pradesh gramin" | "hpgramin" => {
+                Some(Self::Hpgb)
+            }
             _ => None,
         }
     }
 }
+

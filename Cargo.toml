@@ -11,10 +11,10 @@ keywords = ["pdf", "bank-statement", "parser", "extractor", "xlsx"]
 categories = ["parser-implementations", "text-processing"]
 exclude = [
     "*.pdf",
+    "**/*.pdf",
     "*.csv",
+    "**/*.csv",
     "*.log",
-    "static/sample_hdfc.pdf",
-    "static/sample_hdfc_decrypted.pdf",
     "temp/**"
 ]
 

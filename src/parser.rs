@@ -402,6 +402,10 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
         Ok(Some(crate::presets::BankPreset::Uco))
     } else if full_text.contains("INDIAN BANK") || full_text.contains("ALLAHABAD") {
         Ok(Some(crate::presets::BankPreset::Indian))
+    } else if full_text.contains("HIMACHAL PRADESH GRAMIN")
+        || full_text.contains("HPGB")
+    {
+        Ok(Some(crate::presets::BankPreset::Hpgb))
     } else if full_text.contains("H P STATE CO-OP")
         || full_text.contains("CO-OPERATIVE BANK")
         || full_text.contains("HPSCB")
@@ -1086,4 +1090,23 @@ mod tests {
             "Suspense"
         );
     }
+
+    #[test]
+    fn test_hpgb_extraction() {
+        let pdf_path = Path::new("HIMACHAL PRADESH GRAMIN BANK.pdf");
+        if pdf_path.exists() {
+            let preset = detect_preset_from_file(pdf_path, None).unwrap();
+            assert_eq!(preset, Some(BankPreset::Hpgb));
+
+            let config = BankPreset::Hpgb.config();
+            let table = extract_from_file(pdf_path, &config).unwrap();
+            assert!(!table.rows.is_empty(), "HPGB table should contain extracted rows");
+        }
+    }
 }
+
+
+
+
+
+
