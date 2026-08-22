@@ -1,9 +1,9 @@
 use axum::{
     Json, Router,
-    extract::Multipart,
+    extract::{DefaultBodyLimit, Multipart},
     http::{HeaderMap, StatusCode, header},
     response::IntoResponse,
-    routing::post,
+    routing::{get, post},
 };
 use std::collections::HashMap;
 use std::fs;
@@ -14,6 +14,20 @@ use vaultparser::{
     exporter::{export_to_csv, export_to_tsv, export_to_xlsx},
     extract_from_bytes,
 };
+
+async fn get_presets() -> impl IntoResponse {
+    let mut presets = Vec::new();
+    for preset in BankPreset::all() {
+        let cfg = preset.config();
+        presets.push(serde_json::json!({
+            "key": preset.key(),
+            "name": preset.name(),
+            "guides": cfg.col_guides,
+            "mappings": cfg.col_mappings,
+        }));
+    }
+    Json(presets)
+}
 
 async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut file_bytes = Vec::new();
@@ -66,49 +80,34 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
         return Err((StatusCode::BAD_REQUEST, "No file uploaded".to_string()));
     }
 
-    let temp_dir = std::path::Path::new("temp");
-    fs::create_dir_all(temp_dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let temp_path = temp_dir.join(format!("detect_{}.pdf", ts));
+    let temp_path =
+        std::env::temp_dir().join(format!("vp_detect_{}_{}.pdf", std::process::id(), ts));
     fs::write(&temp_path, &file_bytes)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let preset_opt = detect_preset_from_file(&temp_path, password.as_deref())
-        .ok()
-        .flatten();
-    let (preset_key, preset_name) = match preset_opt {
-        Some(preset) => {
-            let key = match preset {
-                BankPreset::Hdfc => "hdfc",
-                BankPreset::Sbi => "sbi",
-                BankPreset::Canara => "canara",
-                BankPreset::Union => "union",
-                BankPreset::Uco => "uco",
-                BankPreset::Indian => "indian",
-                BankPreset::Hpscb => "hpscb",
-                BankPreset::Icici => "icici",
-                BankPreset::Pnb => "pnb",
-                BankPreset::Kotak => "kotak",
-                BankPreset::Axis => "axis",
-                BankPreset::Bob => "bob",
-                BankPreset::Yes => "yes",
-                BankPreset::Idfc => "idfc",
-                BankPreset::Indusind => "indusind",
-                BankPreset::Hpgb => "hpgb",
-            };
-            (Some(key.to_string()), Some(preset.name().to_string()))
-        }
-        None => (None, None),
-    };
-
-    let guides = detect_column_guides(&temp_path, password.as_deref(), y_top_trim, y_bottom_trim)
-        .unwrap_or_default();
-
-    let _ = fs::remove_file(&temp_path);
+    let (preset_key, preset_name, guides) = tokio::task::spawn_blocking(move || {
+        let preset_opt = detect_preset_from_file(&temp_path, password.as_deref())
+            .ok()
+            .flatten();
+        let (p_key, p_name) = match preset_opt {
+            Some(preset) => (
+                Some(preset.key().to_string()),
+                Some(preset.name().to_string()),
+            ),
+            None => (None, None),
+        };
+        let guides =
+            detect_column_guides(&temp_path, password.as_deref(), y_top_trim, y_bottom_trim)
+                .unwrap_or_default();
+        let _ = fs::remove_file(&temp_path);
+        (p_key, p_name, guides)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let response = serde_json::json!({
         "preset": preset_key,
@@ -324,75 +323,72 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
         .build()
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid config: {}", e)))?;
 
-    let extracted_table = extract_from_bytes(&file_bytes, &config).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Extraction failed: {}", e),
-        )
-    })?;
+    let format_type_clone = format_type.clone();
+    let (extracted_table, export_payload) = tokio::task::spawn_blocking(move || {
+        let extracted_table = extract_from_bytes(&file_bytes, &config)
+            .map_err(|e| format!("Extraction failed: {}", e))?;
 
-    if format_type == "xlsx" {
-        let xlsx_bytes = export_to_xlsx(&extracted_table).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Excel export failed: {}", e),
-            )
-        })?;
+        if format_type_clone == "xlsx" {
+            let xlsx_bytes = export_to_xlsx(&extracted_table)
+                .map_err(|e| format!("Excel export failed: {}", e))?;
+            Ok((extracted_table, Some(("xlsx", xlsx_bytes))))
+        } else if format_type_clone == "csv" {
+            let csv_data =
+                export_to_csv(&extracted_table).map_err(|e| format!("CSV export failed: {}", e))?;
+            Ok((extracted_table, Some(("csv", csv_data))))
+        } else if format_type_clone == "tsv" {
+            let tsv_data =
+                export_to_tsv(&extracted_table).map_err(|e| format!("TSV export failed: {}", e))?;
+            Ok((extracted_table, Some(("tsv", tsv_data))))
+        } else {
+            Ok((extracted_table, None))
+        }
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+    if let Some((kind, bytes)) = export_payload {
         let mut res_headers = HeaderMap::new();
-        res_headers.insert(
-            header::CONTENT_TYPE,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                .parse()
-                .unwrap(),
-        );
-        res_headers.insert(
-            header::CONTENT_DISPOSITION,
-            "attachment; filename=converted_statement.xlsx"
-                .parse()
-                .unwrap(),
-        );
-
-        Ok((StatusCode::OK, res_headers, xlsx_bytes).into_response())
-    } else if format_type == "csv" {
-        let csv_data = export_to_csv(&extracted_table).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("CSV export failed: {}", e),
-            )
-        })?;
-
-        let mut res_headers = HeaderMap::new();
-        res_headers.insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
-        res_headers.insert(
-            header::CONTENT_DISPOSITION,
-            "attachment; filename=converted_statement.csv"
-                .parse()
-                .unwrap(),
-        );
-
-        Ok((StatusCode::OK, res_headers, csv_data).into_response())
-    } else if format_type == "tsv" {
-        let tsv_data = export_to_tsv(&extracted_table).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("TSV export failed: {}", e),
-            )
-        })?;
-
-        let mut res_headers = HeaderMap::new();
-        res_headers.insert(
-            header::CONTENT_TYPE,
-            "text/tab-separated-values".parse().unwrap(),
-        );
-        res_headers.insert(
-            header::CONTENT_DISPOSITION,
-            "attachment; filename=converted_statement.tsv"
-                .parse()
-                .unwrap(),
-        );
-
-        Ok((StatusCode::OK, res_headers, tsv_data).into_response())
+        match kind {
+            "xlsx" => {
+                res_headers.insert(
+                    header::CONTENT_TYPE,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        .parse()
+                        .unwrap(),
+                );
+                res_headers.insert(
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=converted_statement.xlsx"
+                        .parse()
+                        .unwrap(),
+                );
+            }
+            "csv" => {
+                res_headers.insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
+                res_headers.insert(
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=converted_statement.csv"
+                        .parse()
+                        .unwrap(),
+                );
+            }
+            "tsv" => {
+                res_headers.insert(
+                    header::CONTENT_TYPE,
+                    "text/tab-separated-values".parse().unwrap(),
+                );
+                res_headers.insert(
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=converted_statement.tsv"
+                        .parse()
+                        .unwrap(),
+                );
+            }
+            _ => {}
+        }
+        Ok((StatusCode::OK, res_headers, bytes).into_response())
     } else {
         let json_response = serde_json::json!({
             "headers": extracted_table.headers,
@@ -413,7 +409,7 @@ async fn main() {
         )
         .init();
 
-    // Clean up temp directory on startup
+    // Clean up temp directory on startup if it exists
     if let Ok(entries) = fs::read_dir("temp") {
         for entry in entries.flatten() {
             let _ = fs::remove_file(entry.path());
@@ -423,10 +419,14 @@ async fn main() {
     let app = Router::new()
         .route("/api/convert", post(convert_pdf))
         .route("/api/detect", post(detect_pdf))
+        .route("/api/presets", get(get_presets))
         .fallback_service(ServeDir::new("static"))
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(tower_http::trace::TraceLayer::new_for_http());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+        .await
+        .unwrap();
     tracing::info!("Server running on http://127.0.0.1:8000");
     axum::serve(listener, app).await.unwrap();
 }

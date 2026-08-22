@@ -92,21 +92,36 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
 use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook};
 
 fn parse_amount(val: &str) -> Option<f64> {
-    let clean = val
-        .replace([',', '₹'], "")
-        .replace("Rs.", "")
-        .replace("Rs", "")
-        .replace("INR", "")
-        .replace("CR", "")
-        .replace("Cr", "")
-        .replace("DR", "")
-        .replace("Dr", "")
-        .trim()
-        .to_string();
+    let mut clean = val.trim();
     if clean.is_empty() {
         return None;
     }
-    clean.parse::<f64>().ok()
+    let is_parenthesized = clean.starts_with('(') && clean.ends_with(')');
+    if is_parenthesized {
+        clean = clean[1..clean.len() - 1].trim();
+    }
+    let mut cleaned = clean
+        .replace(['$', '£', '€', '₹', ','], "")
+        .trim()
+        .to_string();
+
+    let keywords = [
+        "Rs.", "RS.", "rs.", "Rs", "RS", "rs", "INR", "inr", "Cr.", "CR.", "cr.", "Cr", "CR", "cr",
+        "Dr.", "DR.", "dr.", "Dr", "DR", "dr",
+    ];
+    for kw in &keywords {
+        cleaned = cleaned.replace(kw, "");
+    }
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() {
+        return None;
+    }
+    let num = cleaned.parse::<f64>().ok()?;
+    if is_parenthesized {
+        Some(-num.abs())
+    } else {
+        Some(num)
+    }
 }
 
 /// Converts an [`ExtractedTable`] into an Excel workbook file (`.xlsx`) byte vector.
@@ -520,6 +535,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_amount_various_formats() {
+        assert_eq!(parse_amount("1,234.50"), Some(1234.50));
+        assert_eq!(parse_amount("(1,234.50)"), Some(-1234.50));
+        assert_eq!(parse_amount("₹ 5,000.00"), Some(5000.00));
+        assert_eq!(parse_amount("$250.75"), Some(250.75));
+        assert_eq!(parse_amount("€100.00"), Some(100.00));
+        assert_eq!(parse_amount("500.00 Dr"), Some(500.00));
+        assert_eq!(parse_amount("1,000.00 Cr"), Some(1000.00));
+        assert_eq!(parse_amount("Rs. 1,500.00"), Some(1500.00));
+        assert_eq!(parse_amount(""), None);
+        assert_eq!(parse_amount("invalid"), None);
+    }
+
+    #[test]
     fn test_export_to_xlsx_formatting() {
         let table = ExtractedTable {
             headers: vec![
@@ -536,8 +565,8 @@ mod tests {
                 cells: vec![
                     "01-01-2023".to_string(),
                     "Salary Deposit".to_string(),
-                    "1,250.00".to_string(),
-                    "10,500.50".to_string(),
+                    "(1,250.00)".to_string(),
+                    "₹ 10,500.50".to_string(),
                 ],
             }],
         };

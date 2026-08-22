@@ -21,7 +21,7 @@ fn is_possible_date(val: &str) -> bool {
         return false;
     }
     let cleaned = val.trim();
-    if cleaned.len() > 25 || cleaned.len() < 5 {
+    if cleaned.len() > 35 || cleaned.len() < 4 {
         return false;
     }
 
@@ -34,7 +34,29 @@ fn is_possible_date(val: &str) -> bool {
 
     if has_space && !has_separator {
         let months = [
-            "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct",
+            "nov",
+            "dec",
+            "january",
+            "february",
+            "march",
+            "april",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
         ];
         let lower = cleaned.to_lowercase();
         let contains_month = months.iter().any(|m| lower.contains(m));
@@ -43,7 +65,8 @@ fn is_possible_date(val: &str) -> bool {
         }
     }
 
-    if cleaned.chars().filter(|c| c.is_ascii_alphabetic()).count() > 6 {
+    // Allow full month names (e.g. September = 9 chars) while filtering out long non-date text
+    if cleaned.chars().filter(|c| c.is_ascii_alphabetic()).count() > 12 {
         return false;
     }
     cleaned.chars().filter(|c| c.is_ascii_digit()).count() >= 2
@@ -53,7 +76,11 @@ fn is_possible_amount(val: &str) -> bool {
     if val.is_empty() {
         return false;
     }
-    let mut cleaned = val
+    let mut clean = val.trim();
+    if clean.starts_with('(') && clean.ends_with(')') {
+        clean = clean[1..clean.len() - 1].trim();
+    }
+    let mut cleaned = clean
         .replace(['$', '£', '€', '₹', ','], "")
         .trim()
         .to_string();
@@ -83,6 +110,8 @@ fn standardize_date(val: &str) -> String {
         "%d-%m-%Y %H:%M",
         "%d-%b-%Y %H:%M:%S",
         "%d-%b-%Y %H:%M",
+        "%d-%B-%Y %H:%M:%S",
+        "%d-%B-%Y %H:%M",
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
     ];
@@ -95,19 +124,26 @@ fn standardize_date(val: &str) -> String {
 
     // Try a series of common date formats
     let formats = [
-        "%d/%m/%y", // 30/04/25
-        "%d/%m/%Y", // 30/04/2025
-        "%d-%m-%y", // 30-04-25
-        "%d-%m-%Y", // 30-04-2025
-        "%d.%m.%y", // 30.04.25
-        "%d.%m.%Y", // 30.04.2025
-        "%d %b %y", // 30 Apr 25
-        "%d %b %Y", // 30 Apr 2025
-        "%d-%b-%y", // 30-Apr-25
-        "%d-%b-%Y", // 30-Apr-2025
-        "%d %B %Y", // 30 April 2025
-        "%d-%B-%Y", // 30-April-2025
-        "%Y-%m-%d", // 2025-04-30
+        "%d/%m/%y",  // 30/04/25
+        "%d/%m/%Y",  // 30/04/2025
+        "%d-%m-%y",  // 30-04-25
+        "%d-%m-%Y",  // 30-04-2025
+        "%d.%m.%y",  // 30.04.25
+        "%d.%m.%Y",  // 30.04.2025
+        "%d %b %y",  // 30 Apr 25
+        "%d %b %Y",  // 30 Apr 2025
+        "%d-%b-%y",  // 30-Apr-25
+        "%d-%b-%Y",  // 30-Apr-2025
+        "%d %B %y",  // 30 April 25
+        "%d %B %Y",  // 30 April 2025
+        "%d-%B-%y",  // 30-April-25
+        "%d-%B-%Y",  // 30-April-2025
+        "%B %d, %Y", // September 30, 2025
+        "%b %d, %Y", // Sep 30, 2025
+        "%Y-%m-%d",  // 2025-04-30
+        "%Y/%m/%d",  // 2025/04/30
+        "%m/%d/%Y",  // 04/30/2025
+        "%m/%d/%y",  // 04/30/25
     ];
 
     for fmt in &formats {
@@ -160,20 +196,19 @@ fn decrypt_pdf_if_needed(
     if use_decrypted {
         let ts = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
+            .map(|d| d.as_nanos())
             .unwrap_or(0);
+        let pid = std::process::id();
         let decrypted_name = format!(
-            "{}_decrypted_{}.pdf",
+            "vp_decrypted_{}_{}_{}.pdf",
+            pid,
+            ts,
             temp_path
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .unwrap_or("temp"),
-            ts
+                .unwrap_or("temp")
         );
-        let decrypted_path = temp_path
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .join(decrypted_name);
+        let decrypted_path = std::env::temp_dir().join(decrypted_name);
         let pwd = password.unwrap_or("");
 
         info!(
@@ -306,11 +341,6 @@ pub fn detect_column_guides<P: AsRef<Path>>(
         }
     }
 
-    // Clean up decrypted file if it was created temporarily
-    if processed_path != path_ref {
-        let _ = std::fs::remove_file(&processed_path);
-    }
-
     // Find gaps / valleys. A valley is where the occupancy histogram is low.
     // We only look in the range of 5% to 95% of the page to avoid page margins.
     let mut guides = Vec::new();
@@ -402,9 +432,7 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
         Ok(Some(crate::presets::BankPreset::Uco))
     } else if full_text.contains("INDIAN BANK") || full_text.contains("ALLAHABAD") {
         Ok(Some(crate::presets::BankPreset::Indian))
-    } else if full_text.contains("HIMACHAL PRADESH GRAMIN")
-        || full_text.contains("HPGB")
-    {
+    } else if full_text.contains("HIMACHAL PRADESH GRAMIN") || full_text.contains("HPGB") {
         Ok(Some(crate::presets::BankPreset::Hpgb))
     } else if full_text.contains("H P STATE CO-OP")
         || full_text.contains("CO-OPERATIVE BANK")
@@ -562,7 +590,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
     let pdf = PdfDocument::open(&processed_path).map_err(|e| {
         error!("Failed to open PDF document: {:?}", e);
         let err_str = format!("{:?}", e);
-        if err_str.to_lowercase().contains("password") || err_str.contains("Xref") {
+        if err_str.to_lowercase().contains("password") {
             ExtractorError::PasswordError("Incorrect or missing password".to_string())
         } else {
             ExtractorError::PdfOpenError(format!("{:?}", e))
@@ -658,7 +686,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
             }
 
             page_rows.push(PageRow {
-                id: format!("row-{}-{}-{:.2}", page_idx, row_idx, r.y),
+                id: format!("row-{}-{}", page_idx + 1, row_idx),
                 y: r.y,
                 page: page_idx + 1,
                 cells,
@@ -669,19 +697,20 @@ pub fn extract_from_file<P: AsRef<Path>>(
 
         let page_str = (page_idx + 1).to_string();
 
-        // Handle manual row deletions
+        // Handle manual row deletions (support both stable row ID and legacy y-key)
         if let Some(deletes) = config.deleted_rows.get(&page_str) {
             page_rows.retain(|row| {
                 let y_key = format!("{:.2}", row.y);
-                !deletes.contains_key(&y_key)
+                !deletes.contains_key(&row.id) && !deletes.contains_key(&y_key)
             });
         }
 
-        // Handle manual cell edits
+        // Handle manual cell edits (support both stable row ID and legacy y-key)
         if let Some(edits) = config.manual_edits.get(&page_str) {
             for row in &mut page_rows {
                 let y_key = format!("{:.2}", row.y);
-                if let Some(col_edits) = edits.get(&y_key) {
+                let col_edits_opt = edits.get(&row.id).or_else(|| edits.get(&y_key));
+                if let Some(col_edits) = col_edits_opt {
                     for (col_idx_str, val) in col_edits {
                         if let Some(cell) = col_idx_str
                             .parse::<usize>()
@@ -849,16 +878,13 @@ pub fn extract_from_bytes(
 ) -> Result<ExtractedTable, ExtractorError> {
     config.validate()?;
 
-    // Create a temp file to hold the bytes for parsing
-    let temp_dir = Path::new("temp");
-    fs::create_dir_all(temp_dir)?;
-
     let ts = SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let temp_name = format!("temp_{}.pdf", ts);
-    let temp_path = temp_dir.join(&temp_name);
+    let pid = std::process::id();
+    let temp_name = format!("vp_bytes_{}_{}.pdf", pid, ts);
+    let temp_path = std::env::temp_dir().join(temp_name);
 
     fs::write(&temp_path, pdf_bytes)?;
     let _guard = TempFileGuard::new(temp_path.clone());
@@ -880,6 +906,8 @@ mod tests {
         assert!(is_possible_date("30 Oct 25"));
         assert!(is_possible_date("30/04/2025 10:15:30"));
         assert!(is_possible_date("01-Jan-2025"));
+        assert!(is_possible_date("30 September 2025"));
+        assert!(is_possible_date("1/1/25"));
         assert!(!is_possible_date(""));
         assert!(!is_possible_date("Not a date"));
         assert!(!is_possible_date("DEP 123"));
@@ -891,6 +919,7 @@ mod tests {
         assert!(is_possible_amount("$1,234.50"));
         assert!(is_possible_amount("€100"));
         assert!(is_possible_amount("-50.00"));
+        assert!(is_possible_amount("(1,234.50)"));
         assert!(is_possible_amount("1,250.00 Cr"));
         assert!(is_possible_amount("500.00 Dr"));
         assert!(is_possible_amount("Rs. 1,250.00"));
@@ -930,12 +959,14 @@ mod tests {
                 ]
             );
 
-            // Check first extracted row
+            // Check first extracted row values
             let first_row = &table.rows[0];
             assert!(
                 !first_row.cells.is_empty(),
                 "First row cells should not be empty"
             );
+            assert!(first_row.page >= 1);
+            assert!(first_row.id.starts_with("row-"));
             println!("First Row: {:?}", first_row);
         } else {
             eprintln!(
@@ -1007,6 +1038,7 @@ mod tests {
         assert_eq!(standardize_date("30.04.25"), "30-04-2025");
         assert_eq!(standardize_date("30 Apr 2025"), "30-04-2025");
         assert_eq!(standardize_date("30 Apr 25"), "30-04-2025");
+        assert_eq!(standardize_date("30 September 2025"), "30-09-2025");
         assert_eq!(standardize_date("2025-04-30"), "30-04-2025");
         assert_eq!(standardize_date("not-a-date"), "not-a-date");
     }
@@ -1100,13 +1132,10 @@ mod tests {
 
             let config = BankPreset::Hpgb.config();
             let table = extract_from_file(pdf_path, &config).unwrap();
-            assert!(!table.rows.is_empty(), "HPGB table should contain extracted rows");
+            assert!(
+                !table.rows.is_empty(),
+                "HPGB table should contain extracted rows"
+            );
         }
     }
 }
-
-
-
-
-
-

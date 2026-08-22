@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-08-22
+
+### Security
+- Server binds to loopback (`127.0.0.1:8000`) rather than `0.0.0.0:8000` to prevent unintended LAN exposure.
+- Added Axum `DefaultBodyLimit` (50 MB) to guard against unbounded multipart memory usage.
+- Stored decrypted statements and temporary parsing files in OS temporary directory (`std::env::temp_dir()`) with unique process ID and timestamp suffixes, eliminating disk pollution beside source files and preventing concurrent collision.
+- Offloaded CPU-bound PDF extraction and layout parsing to `tokio::task::spawn_blocking` to prevent reactor thread starvation.
+
+### Fixed
+- Fixed manual cell edits and row deletions drift by using stable, deterministic index-based row IDs (`row-{page}-{idx}`) with backwards-compatible coordinate fallback.
+- Enhanced amount recognition (`is_possible_amount` and `parse_amount`) to properly parse accounting negative numbers formatted in parentheses like `(1,234.50)` as negative floats.
+- Expanded date recognition (`is_possible_date` and `standardize_date`) to support full month names (e.g. "30 September 2025") and short date strings (`1/1/25`).
+- Fixed error classification so PDF structural corruption / Xref errors are correctly surfaced as `PdfOpenError` rather than misattributed as `PasswordError`.
+- Cleaned up redundant manual file deletion in `detect_column_guides`.
+
+### Added
+- Added `/api/presets` HTTP endpoint serving native bank statement presets dynamically.
+- Added missing column mapping dropdown choices (`value_date`, `chq_no`, `s_no`) and preset definitions (`axis`, `bob`, `yes`, `idfc`, `indusind`) in Web UI.
+- Upgraded CI workflow with `dtolnay/rust-toolchain@stable`, automated `cargo test --all-features`, and strict Clippy lint checks.
+- Cleaned up `.oxlintrc.json` for vanilla JavaScript.
+- Added unit tests covering accounting numbers, extended date formats, and export formatting.
+
 ## [0.3.4] - 2026-08-06
 
 ### Added

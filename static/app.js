@@ -65,6 +65,31 @@ const PRESETS = {
     guides: [0.15, 0.44, 0.65, 0.79],
     mappings: ['date', 'description', 'reference', 'debit', 'balance']
   },
+  axis: {
+    name: '🏦 Axis Bank',
+    guides: [0.10, 0.20, 0.50, 0.63, 0.76, 0.88],
+    mappings: ['date', 'chq_no', 'description', 'debit', 'credit', 'balance']
+  },
+  bob: {
+    name: '🏦 Bank of Baroda',
+    guides: [0.10, 0.20, 0.52, 0.65, 0.78, 0.88],
+    mappings: ['date', 'chq_no', 'description', 'debit', 'credit', 'balance']
+  },
+  yes: {
+    name: '🏦 YES Bank',
+    guides: [0.12, 0.45, 0.58, 0.72, 0.86],
+    mappings: ['date', 'description', 'reference', 'debit', 'credit', 'balance']
+  },
+  idfc: {
+    name: '🏦 IDFC FIRST Bank',
+    guides: [0.11, 0.45, 0.58, 0.72, 0.85],
+    mappings: ['date', 'description', 'reference', 'debit', 'credit', 'balance']
+  },
+  indusind: {
+    name: '🏦 IndusInd Bank',
+    guides: [0.10, 0.22, 0.55, 0.68, 0.80],
+    mappings: ['date', 'chq_no', 'description', 'debit', 'credit', 'balance']
+  },
   custom: {
     name: '⚙️ Custom Layout',
     guides: null,
@@ -734,8 +759,11 @@ function renderMappingsControls() {
     const options = [
       { val: 'skip', label: 'Skip / Ignore' },
       { val: 'date', label: 'Transaction Date' },
+      { val: 'value_date', label: 'Value Date' },
+      { val: 's_no', label: 'Serial No.' },
       { val: 'description', label: 'Description / Narration' },
-      { val: 'reference', label: 'Reference / Chq No.' },
+      { val: 'reference', label: 'Reference' },
+      { val: 'chq_no', label: 'Cheque / Ref No.' },
       { val: 'amount', label: 'Amount (Combined)' },
       { val: 'debit', label: 'Withdrawals / Debit' },
       { val: 'credit', label: 'Deposits / Credit' },
@@ -945,7 +973,7 @@ function renderPreviewTable(data) {
     btnTrash.className = 'btn-delete-row';
     btnTrash.textContent = '✕';
     btnTrash.title = 'Remove row';
-    btnTrash.addEventListener('click', () => deleteRow(row.y));
+    btnTrash.addEventListener('click', () => deleteRow(row.id || row.y));
     tdTrash.appendChild(btnTrash);
     tr.appendChild(tdTrash);
     
@@ -968,7 +996,7 @@ function renderPreviewTable(data) {
           const newVal = inp.value.trim();
           td.innerHTML = '';
           td.textContent = newVal;
-          saveLocalCellEdit(row.y, colIdx, newVal);
+          saveLocalCellEdit(row.id || row.y, colIdx, newVal);
         };
         
         inp.addEventListener('blur', saveEdit);
@@ -989,24 +1017,24 @@ function renderPreviewTable(data) {
 }
 
 // Save cell edits locally and trigger conversions updates
-function saveLocalCellEdit(rowY, colIdx, newVal) {
+function saveLocalCellEdit(rowKey, colIdx, newVal) {
   const pageStr = String(currentPage);
-  const yKey = rowY.toFixed(2);
+  const key = typeof rowKey === 'number' ? rowKey.toFixed(2) : String(rowKey);
   
   if (!manualEdits[pageStr]) manualEdits[pageStr] = {};
-  if (!manualEdits[pageStr][yKey]) manualEdits[pageStr][yKey] = {};
+  if (!manualEdits[pageStr][key]) manualEdits[pageStr][key] = {};
   
-  manualEdits[pageStr][yKey][colIdx] = newVal;
+  manualEdits[pageStr][key][colIdx] = newVal;
   triggerConversion();
 }
 
 // Remove row locally
-function deleteRow(rowY) {
+function deleteRow(rowKey) {
   const pageStr = String(currentPage);
-  const yKey = rowY.toFixed(2);
+  const key = typeof rowKey === 'number' ? rowKey.toFixed(2) : String(rowKey);
   
   if (!deletedRows[pageStr]) deletedRows[pageStr] = {};
-  deletedRows[pageStr][yKey] = true;
+  deletedRows[pageStr][key] = true;
   triggerConversion();
 }
 

@@ -291,6 +291,50 @@ impl BankPreset {
         config
     }
 
+    /// Returns the lowercase machine key for this bank preset.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Hdfc => "hdfc",
+            Self::Sbi => "sbi",
+            Self::Canara => "canara",
+            Self::Union => "union",
+            Self::Uco => "uco",
+            Self::Indian => "indian",
+            Self::Hpscb => "hpscb",
+            Self::Icici => "icici",
+            Self::Pnb => "pnb",
+            Self::Kotak => "kotak",
+            Self::Axis => "axis",
+            Self::Bob => "bob",
+            Self::Yes => "yes",
+            Self::Idfc => "idfc",
+            Self::Indusind => "indusind",
+            Self::Hpgb => "hpgb",
+        }
+    }
+
+    /// Returns a list of all supported bank presets.
+    pub fn all() -> &'static [BankPreset] {
+        &[
+            Self::Hdfc,
+            Self::Sbi,
+            Self::Canara,
+            Self::Union,
+            Self::Uco,
+            Self::Indian,
+            Self::Hpscb,
+            Self::Icici,
+            Self::Pnb,
+            Self::Kotak,
+            Self::Axis,
+            Self::Bob,
+            Self::Yes,
+            Self::Idfc,
+            Self::Indusind,
+            Self::Hpgb,
+        ]
+    }
+
     /// Attempts to parse a case-insensitive string into a [`BankPreset`].
     /// Returns `None` if the name is unrecognized.
     ///
@@ -327,4 +371,3 @@ impl BankPreset {
         }
     }
 }
-
