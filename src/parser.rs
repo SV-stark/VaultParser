@@ -73,27 +73,7 @@ fn is_possible_date(val: &str) -> bool {
 }
 
 fn is_possible_amount(val: &str) -> bool {
-    if val.is_empty() {
-        return false;
-    }
-    let mut clean = val.trim();
-    if clean.starts_with('(') && clean.ends_with(')') {
-        clean = clean[1..clean.len() - 1].trim();
-    }
-    let mut cleaned = clean
-        .replace(['$', '£', '€', '₹', ','], "")
-        .trim()
-        .to_string();
-
-    let keywords = [
-        "Rs.", "RS.", "rs.", "Rs", "RS", "rs", "INR", "inr", "Cr.", "CR.", "cr.", "Cr", "CR", "cr",
-        "Dr.", "DR.", "dr.", "Dr", "DR", "dr",
-    ];
-    for kw in &keywords {
-        cleaned = cleaned.replace(kw, "");
-    }
-    let cleaned = cleaned.trim();
-    cleaned.parse::<f64>().is_ok()
+    crate::exporter::parse_amount(val).is_some()
 }
 
 fn standardize_date(val: &str) -> String {
@@ -461,29 +441,7 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
 }
 
 fn parse_date_naive(s: &str) -> Option<chrono::NaiveDate> {
-    let clean = s.trim();
-    if clean.is_empty() {
-        return None;
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%Y-%m-%d") {
-        return Some(d);
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d-%m-%Y") {
-        return Some(d);
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d/%m/%Y") {
-        return Some(d);
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%Y/%m/%d") {
-        return Some(d);
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d-%b-%Y") {
-        return Some(d);
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d %b %Y") {
-        return Some(d);
-    }
-    None
+    crate::config::parse_date(s)
 }
 
 pub fn classify_transaction(narrative: &str) -> &'static str {
@@ -701,7 +659,9 @@ pub fn extract_from_file<P: AsRef<Path>>(
         if let Some(deletes) = config.deleted_rows.get(&page_str) {
             page_rows.retain(|row| {
                 let y_key = format!("{:.2}", row.y);
-                !deletes.contains_key(&row.id) && !deletes.contains_key(&y_key)
+                let id_deleted = deletes.get(&row.id).copied().unwrap_or(false);
+                let y_deleted = deletes.get(&y_key).copied().unwrap_or(false);
+                !id_deleted && !y_deleted
             });
         }
 
@@ -744,12 +704,17 @@ pub fn extract_from_file<P: AsRef<Path>>(
         if let Some(desc_idx) = config.merge_multi_line.then_some(desc_idx).flatten() {
             let mut merged = Vec::new();
             for row in page_rows {
-                let cell_desc = &row.cells[desc_idx];
-                let is_date_empty = date_idx.is_none_or(|idx| row.cells[idx].is_empty());
-                let is_amount_empty = amount_idx.is_none_or(|idx| row.cells[idx].is_empty());
-                let is_debit_empty = debit_idx.is_none_or(|idx| row.cells[idx].is_empty());
-                let is_credit_empty = credit_idx.is_none_or(|idx| row.cells[idx].is_empty());
-                let is_balance_empty = balance_idx.is_none_or(|idx| row.cells[idx].is_empty());
+                let cell_desc = row.cells.get(desc_idx).map(|s| s.as_str()).unwrap_or("");
+                let is_date_empty =
+                    date_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_amount_empty =
+                    amount_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_debit_empty =
+                    debit_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_credit_empty =
+                    credit_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_balance_empty =
+                    balance_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
 
                 let is_continuation = is_date_empty
                     && is_amount_empty
@@ -760,10 +725,9 @@ pub fn extract_from_file<P: AsRef<Path>>(
 
                 if is_continuation && !merged.is_empty() {
                     let last_row: &mut PageRow = merged.last_mut().unwrap();
-                    last_row.cells[desc_idx] =
-                        format!("{} {}", last_row.cells[desc_idx], cell_desc)
-                            .trim()
-                            .to_string();
+                    if let Some(last_desc) = last_row.cells.get_mut(desc_idx) {
+                        *last_desc = format!("{} {}", last_desc, cell_desc).trim().to_string();
+                    }
                 } else {
                     merged.push(row);
                 }
@@ -787,15 +751,19 @@ pub fn extract_from_file<P: AsRef<Path>>(
         for row in page_rows {
             let mut keep = true;
             if config.filter_only_date
-                && date_idx.is_some_and(|idx| !is_possible_date(&row.cells[idx]))
+                && date_idx
+                    .is_some_and(|idx| row.cells.get(idx).is_none_or(|c| !is_possible_date(c)))
             {
                 keep = false;
             }
 
             if config.filter_only_amount {
-                let has_amount = amount_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
-                let has_debit = debit_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
-                let has_credit = credit_idx.is_some_and(|idx| is_possible_amount(&row.cells[idx]));
+                let has_amount = amount_idx
+                    .is_some_and(|idx| row.cells.get(idx).is_some_and(|c| is_possible_amount(c)));
+                let has_debit = debit_idx
+                    .is_some_and(|idx| row.cells.get(idx).is_some_and(|c| is_possible_amount(c)));
+                let has_credit = credit_idx
+                    .is_some_and(|idx| row.cells.get(idx).is_some_and(|c| is_possible_amount(c)));
 
                 if !has_amount && !has_debit && !has_credit {
                     keep = false;
@@ -815,6 +783,8 @@ pub fn extract_from_file<P: AsRef<Path>>(
                     if to_naive.is_some_and(|to_d| row_d > to_d) {
                         keep = false;
                     }
+                } else {
+                    keep = false;
                 }
             }
 
@@ -849,6 +819,9 @@ pub fn extract_from_file<P: AsRef<Path>>(
         active_indices.push(cat_col_index);
 
         for row in &mut all_rows {
+            while row.cells.len() < cat_col_index {
+                row.cells.push(String::new());
+            }
             let narrative = if desc_col_idx < row.cells.len() {
                 &row.cells[desc_col_idx]
             } else {
@@ -1093,6 +1066,34 @@ mod tests {
             .y_bottom_trim(0.3)
             .build();
         assert!(config_res3.is_err());
+
+        // from_date > to_date
+        let config_res4 = ExtractionConfig::builder()
+            .from_date(Some("2024-12-31".to_string()))
+            .to_date(Some("2024-01-01".to_string()))
+            .build();
+        assert!(config_res4.is_err());
+
+        // Negative y_tolerance
+        let config_res5 = ExtractionConfig::builder().y_tolerance(-1.0).build();
+        assert!(config_res5.is_err());
+
+        // Guide > 1.0
+        let config_res6 = ExtractionConfig::builder()
+            .col_guides(vec![1.2])
+            .col_mappings(vec!["date".to_string(), "amount".to_string()])
+            .build();
+        assert!(config_res6.is_err());
+    }
+
+    #[test]
+    fn test_preset_from_str_trait() {
+        assert_eq!("hdfc".parse::<BankPreset>().unwrap(), BankPreset::Hdfc);
+        assert_eq!("SBI".parse::<BankPreset>().unwrap(), BankPreset::Sbi);
+        assert_eq!("axis".parse::<BankPreset>().unwrap(), BankPreset::Axis);
+        assert!("unknown_bank".parse::<BankPreset>().is_err());
+        assert_eq!(BankPreset::from_str("hdfc"), Some(BankPreset::Hdfc));
+        assert_eq!(BankPreset::from_str("unknown_bank"), None);
     }
 
     #[test]

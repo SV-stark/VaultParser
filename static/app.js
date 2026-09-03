@@ -67,13 +67,13 @@ const PRESETS = {
   },
   axis: {
     name: '🏦 Axis Bank',
-    guides: [0.10, 0.20, 0.50, 0.63, 0.76, 0.88],
-    mappings: ['date', 'chq_no', 'description', 'debit', 'credit', 'balance']
+    guides: [0.12, 0.42, 0.55, 0.68, 0.82],
+    mappings: ['date', 'description', 'chq_no', 'debit', 'credit', 'balance']
   },
   bob: {
     name: '🏦 Bank of Baroda',
-    guides: [0.10, 0.20, 0.52, 0.65, 0.78, 0.88],
-    mappings: ['date', 'chq_no', 'description', 'debit', 'credit', 'balance']
+    guides: [0.10, 0.20, 0.50, 0.65, 0.78, 0.88],
+    mappings: ['date', 'value_date', 'description', 'chq_no', 'debit', 'credit', 'balance']
   },
   yes: {
     name: '🏦 YES Bank',
@@ -290,21 +290,22 @@ function bindEvents() {
     btnCopyTsv.addEventListener('click', async () => {
       if (!file) return;
       try {
+        const relGuides = colGuides.map(g => g / viewportWidth);
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('col_guides', JSON.stringify(colGuides));
+        formData.append('col_guides', JSON.stringify(relGuides));
         formData.append('col_mappings', JSON.stringify(colMappings));
         formData.append('y_tolerance', yTolerance);
-        formData.append('merge_multi_line', mergeMultiLine);
+        formData.append('merge_multi_line', mergeDescriptions);
         formData.append('skip_header_rows', skipHeaderRows);
         formData.append('skip_footer_rows', skipFooterRows);
-        formData.append('filter_only_date', filterOnlyDate);
-        formData.append('filter_only_amount', filterOnlyAmount);
+        formData.append('filter_only_date', filterDate);
+        formData.append('filter_only_amount', filterAmount);
         formData.append('format', 'tsv');
         formData.append('manual_edits', JSON.stringify(manualEdits));
         formData.append('deleted_rows', JSON.stringify(deletedRows));
-        formData.append('y_top_trim', yTopTrim);
-        formData.append('y_bottom_trim', yBottomTrim);
+        formData.append('y_top_trim', (topCropPct / 100).toFixed(4));
+        formData.append('y_bottom_trim', (bottomCropPct / 100).toFixed(4));
         if (pdfPassword) formData.append('password', pdfPassword);
 
         const res = await fetch('/api/convert', { method: 'POST', body: formData });

@@ -164,7 +164,12 @@ fn load_preset_config(
                 .password(password.map(String::from))
                 .build()?
         }
-    } else if preset_str.to_lowercase().ends_with(".json") || Path::new(preset_str).exists() {
+    } else if let Some(preset) = BankPreset::from_str(preset_str) {
+        spinner.println(format!("Loading configuration for {}...", preset.name()));
+        let mut c = preset.config();
+        c.password = password.map(String::from);
+        c
+    } else if preset_str.to_lowercase().ends_with(".json") || (Path::new(preset_str).is_file()) {
         spinner.set_message(format!(
             "Loading custom JSON preset from '{}'...",
             preset_str
@@ -174,22 +179,12 @@ fn load_preset_config(
         c.password = password.map(String::from);
         c
     } else {
-        let preset = match BankPreset::from_str(preset_str) {
-            Some(p) => p,
-            None => {
-                spinner.finish_and_clear();
-                eprintln!("Error: Unknown bank preset '{}'.", preset_str);
-                eprintln!(
-                    "Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, hpgb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file"
-                );
-                std::process::exit(1);
-            }
-        };
-
-        spinner.println(format!("Loading configuration for {}...", preset.name()));
-        let mut c = preset.config();
-        c.password = password.map(String::from);
-        c
+        spinner.finish_and_clear();
+        eprintln!("Error: Unknown bank preset '{}'.", preset_str);
+        eprintln!(
+            "Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, hpgb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file"
+        );
+        std::process::exit(1);
     };
 
     config.categorize = categorize;
@@ -254,7 +249,14 @@ fn run_extraction_process(
 
     if let Some(out_path_str) = output {
         let (bytes, ext) = get_format_bytes(&table, target_format)?;
-        let final_path = if infer_format_from_str(out_path_str).is_some() {
+        let final_path = if format_override.is_some() {
+            let p = Path::new(out_path_str);
+            if p.extension().is_some() {
+                p.with_extension(ext).to_string_lossy().to_string()
+            } else {
+                format!("{}.{}", out_path_str, ext)
+            }
+        } else if infer_format_from_str(out_path_str).is_some() {
             out_path_str.to_string()
         } else {
             format!("{}.{}", out_path_str, ext)

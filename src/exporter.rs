@@ -32,16 +32,17 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
         .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
 
     // Write rows (only active indices)
+    let mut row_data = Vec::with_capacity(table.active_indices.len());
     for r in &table.rows {
-        let mut row_data = Vec::new();
+        row_data.clear();
         for &idx in &table.active_indices {
             if idx < r.cells.len() {
-                row_data.push(r.cells[idx].clone());
+                row_data.push(r.cells[idx].as_str());
             } else {
-                row_data.push(String::new());
+                row_data.push("");
             }
         }
-        wtr.write_record(row_data)
+        wtr.write_record(&row_data)
             .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
     }
 
@@ -61,7 +62,6 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
 
             let is_number_col = header_upper.contains("DEBIT")
                 || header_upper.contains("CREDIT")
-                || header_upper.contains("BALANCE")
                 || header_upper.contains("AMOUNT")
                 || header_upper.contains("WITHDRAWAL")
                 || header_upper.contains("DEPOSIT");
@@ -91,19 +91,28 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
 
 use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook};
 
-fn parse_amount(val: &str) -> Option<f64> {
+/// Parses a monetary amount string with support for currency symbols,
+/// comma grouping, accounting parentheses, and trailing negative signs.
+pub fn parse_amount(val: &str) -> Option<f64> {
     let mut clean = val.trim();
     if clean.is_empty() {
         return None;
     }
-    let is_parenthesized = clean.starts_with('(') && clean.ends_with(')');
-    if is_parenthesized {
+    let is_parenthesized_outer = clean.starts_with('(') && clean.ends_with(')');
+    if is_parenthesized_outer {
         clean = clean[1..clean.len() - 1].trim();
     }
     let mut cleaned = clean
         .replace(['$', '£', '€', '₹', ','], "")
         .trim()
         .to_string();
+
+    let is_parenthesized_inner = cleaned.starts_with('(') && cleaned.ends_with(')');
+    if is_parenthesized_inner {
+        cleaned = cleaned[1..cleaned.len() - 1].trim().to_string();
+    }
+
+    let is_negative = is_parenthesized_outer || is_parenthesized_inner;
 
     let keywords = [
         "Rs.", "RS.", "rs.", "Rs", "RS", "rs", "INR", "inr", "Cr.", "CR.", "cr.", "Cr", "CR", "cr",
@@ -112,12 +121,19 @@ fn parse_amount(val: &str) -> Option<f64> {
     for kw in &keywords {
         cleaned = cleaned.replace(kw, "");
     }
-    let cleaned = cleaned.trim();
+    let mut cleaned = cleaned.trim().to_string();
     if cleaned.is_empty() {
         return None;
     }
+
+    let mut trailing_minus = false;
+    if cleaned.ends_with('-') {
+        trailing_minus = true;
+        cleaned = cleaned[..cleaned.len() - 1].trim().to_string();
+    }
+
     let num = cleaned.parse::<f64>().ok()?;
-    if is_parenthesized {
+    if is_negative || trailing_minus {
         Some(-num.abs())
     } else {
         Some(num)
@@ -313,7 +329,7 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
 
     // Write Summary & Totals Row if rows exist
     if !table.rows.is_empty() {
-        let summary_row = (table.rows.len() + 2) as u32;
+        let summary_row = (table.rows.len() + 1) as u32;
         worksheet
             .set_row_height(summary_row, 24.0)
             .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
@@ -339,6 +355,9 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
             .set_border_color(Color::RGB(0x64748B));
 
         let total_label = format!("TOTALS ({} rows)", table.rows.len());
+        if !col_widths.is_empty() {
+            col_widths[0] = col_widths[0].max(total_label.len());
+        }
         worksheet
             .write_string_with_format(summary_row, 0, &total_label, &summary_label_fmt)
             .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
@@ -355,7 +374,6 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
 
             let is_number_col = header_upper.contains("DEBIT")
                 || header_upper.contains("CREDIT")
-                || header_upper.contains("BALANCE")
                 || header_upper.contains("AMOUNT")
                 || header_upper.contains("WITHDRAWAL")
                 || header_upper.contains("DEPOSIT");
@@ -388,8 +406,6 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
             .set_column_width(col_idx as u16, final_width)
             .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
     }
-
-    worksheet.autofit();
 
     workbook
         .save_to_buffer()
@@ -454,16 +470,17 @@ pub fn export_to_tsv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
         .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
 
     // Write rows (only active indices)
+    let mut row_data = Vec::with_capacity(table.active_indices.len());
     for r in &table.rows {
-        let mut row_data = Vec::new();
+        row_data.clear();
         for &idx in &table.active_indices {
             if idx < r.cells.len() {
-                row_data.push(r.cells[idx].clone());
+                row_data.push(r.cells[idx].as_str());
             } else {
-                row_data.push(String::new());
+                row_data.push("");
             }
         }
-        wtr.write_record(row_data)
+        wtr.write_record(&row_data)
             .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
     }
 
@@ -483,7 +500,6 @@ pub fn export_to_tsv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
 
             let is_number_col = header_upper.contains("DEBIT")
                 || header_upper.contains("CREDIT")
-                || header_upper.contains("BALANCE")
                 || header_upper.contains("AMOUNT")
                 || header_upper.contains("WITHDRAWAL")
                 || header_upper.contains("DEPOSIT");
@@ -538,6 +554,10 @@ mod tests {
     fn test_parse_amount_various_formats() {
         assert_eq!(parse_amount("1,234.50"), Some(1234.50));
         assert_eq!(parse_amount("(1,234.50)"), Some(-1234.50));
+        assert_eq!(parse_amount("$(1,234.50)"), Some(-1234.50));
+        assert_eq!(parse_amount("₹ (5,000.00)"), Some(-5000.00));
+        assert_eq!(parse_amount("(₹ 5,000.00)"), Some(-5000.00));
+        assert_eq!(parse_amount("1,234.50-"), Some(-1234.50));
         assert_eq!(parse_amount("₹ 5,000.00"), Some(5000.00));
         assert_eq!(parse_amount("$250.75"), Some(250.75));
         assert_eq!(parse_amount("€100.00"), Some(100.00));

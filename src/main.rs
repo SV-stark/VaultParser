@@ -90,6 +90,14 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let (preset_key, preset_name, guides) = tokio::task::spawn_blocking(move || {
+        struct TempFileGuard(std::path::PathBuf);
+        impl Drop for TempFileGuard {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(&self.0);
+            }
+        }
+        let _guard = TempFileGuard(temp_path.clone());
+
         let preset_opt = detect_preset_from_file(&temp_path, password.as_deref())
             .ok()
             .flatten();
@@ -103,7 +111,6 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
         let guides =
             detect_column_guides(&temp_path, password.as_deref(), y_top_trim, y_bottom_trim)
                 .unwrap_or_default();
-        let _ = fs::remove_file(&temp_path);
         (p_key, p_name, guides)
     })
     .await
@@ -424,9 +431,19 @@ async fn main() {
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(tower_http::trace::TraceLayer::new_for_http());
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(8000);
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let addr = format!("{}:{}", host, port);
+
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .unwrap();
-    tracing::info!("Server running on http://127.0.0.1:8000");
+        .unwrap_or_else(|e| {
+            tracing::error!("Failed to bind to {}: {}", addr, e);
+            std::process::exit(1);
+        });
+    tracing::info!("Server running on http://{}", addr);
     axum::serve(listener, app).await.unwrap();
 }

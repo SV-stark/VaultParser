@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bounding coordinates and text of a single word extracted from a PDF.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WordItem {
     /// The string text content of the word.
     pub text: String,
@@ -14,7 +14,7 @@ pub struct WordItem {
 }
 
 /// A single clustered row belonging to a specific page.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageRow {
     /// A unique identifier for the row, combining the page index and formatted Y-coordinate.
     pub id: String,
@@ -27,7 +27,7 @@ pub struct PageRow {
 }
 
 /// The final parsed structure containing headers and data records.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtractedTable {
     /// List of user-facing column header names (excludes skipped columns).
     pub headers: Vec<String>,

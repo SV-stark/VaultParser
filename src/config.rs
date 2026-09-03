@@ -96,22 +96,45 @@ impl ExtractionConfig {
     /// Validates the configuration parameters.
     ///
     /// # Errors
-    /// Returns `ExtractorError::InvalidConfig` if column guides/mappings length or crop bounds are invalid.
+    /// Returns `ExtractorError::InvalidConfig` if column guides/mappings length, coordinates, or crop bounds are invalid.
     pub fn validate(&self) -> Result<(), ExtractorError> {
-        if !self.col_guides.is_empty() && self.col_mappings.len() != self.col_guides.len() + 1 {
+        if (!self.col_guides.is_empty() || !self.col_mappings.is_empty())
+            && self.col_mappings.len() != self.col_guides.len() + 1
+        {
             return Err(ExtractorError::InvalidConfig(format!(
                 "Column mappings length ({}) must be equal to column guides length ({}) + 1",
                 self.col_mappings.len(),
                 self.col_guides.len()
             )));
         }
-        if self.y_top_trim < 0.0 || self.y_top_trim > 1.0 {
+        for (i, &g) in self.col_guides.iter().enumerate() {
+            if !(0.0..=1.0).contains(&g) || g.is_nan() {
+                return Err(ExtractorError::InvalidConfig(format!(
+                    "Column guide at index {} has invalid value {}: must be between 0.0 and 1.0",
+                    i, g
+                )));
+            }
+            if i > 0 && g < self.col_guides[i - 1] {
+                return Err(ExtractorError::InvalidConfig(format!(
+                    "Column guides must be sorted in ascending order (found {} after {})",
+                    g,
+                    self.col_guides[i - 1]
+                )));
+            }
+        }
+        if self.y_tolerance <= 0.0 || self.y_tolerance.is_nan() {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "y_tolerance must be a positive number, found {}",
+                self.y_tolerance
+            )));
+        }
+        if self.y_top_trim < 0.0 || self.y_top_trim > 1.0 || self.y_top_trim.is_nan() {
             return Err(ExtractorError::InvalidConfig(format!(
                 "y_top_trim must be between 0.0 and 1.0, found {}",
                 self.y_top_trim
             )));
         }
-        if self.y_bottom_trim < 0.0 || self.y_bottom_trim > 1.0 {
+        if self.y_bottom_trim < 0.0 || self.y_bottom_trim > 1.0 || self.y_bottom_trim.is_nan() {
             return Err(ExtractorError::InvalidConfig(format!(
                 "y_bottom_trim must be between 0.0 and 1.0, found {}",
                 self.y_bottom_trim
@@ -123,8 +146,60 @@ impl ExtractionConfig {
                 self.y_top_trim, self.y_bottom_trim
             )));
         }
+        if let Some(from_str) = &self.from_date
+            && parse_date(from_str).is_none()
+        {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "Invalid from_date '{}': expected YYYY-MM-DD or DD-MM-YYYY format",
+                from_str
+            )));
+        }
+        if let Some(to_str) = &self.to_date
+            && parse_date(to_str).is_none()
+        {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "Invalid to_date '{}': expected YYYY-MM-DD or DD-MM-YYYY format",
+                to_str
+            )));
+        }
+        if let (Some(from_str), Some(to_str)) = (&self.from_date, &self.to_date)
+            && let (Some(from_d), Some(to_d)) = (parse_date(from_str), parse_date(to_str))
+            && from_d > to_d
+        {
+            return Err(ExtractorError::InvalidConfig(format!(
+                "from_date ({}) cannot be after to_date ({})",
+                from_str, to_str
+            )));
+        }
         Ok(())
     }
+}
+
+/// Helper to parse standard date strings into [`chrono::NaiveDate`].
+pub fn parse_date(s: &str) -> Option<chrono::NaiveDate> {
+    let clean = s.trim();
+    if clean.is_empty() {
+        return None;
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%Y-%m-%d") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d-%m-%Y") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d/%m/%Y") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%Y/%m/%d") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d-%b-%Y") {
+        return Some(d);
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(clean, "%d %b %Y") {
+        return Some(d);
+    }
+    None
 }
 
 /// A builder helper for configuring and creating an [`ExtractionConfig`].

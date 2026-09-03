@@ -339,7 +339,7 @@ impl BankPreset {
     /// Returns `None` if the name is unrecognized.
     ///
     /// # Examples
-    /// ```ignore
+    /// ```
     /// use vaultparser::BankPreset;
     ///
     /// assert_eq!(BankPreset::from_str("hdfc"), Some(BankPreset::Hdfc));
@@ -348,26 +348,37 @@ impl BankPreset {
     /// ```
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
+        s.parse::<Self>().ok()
+    }
+}
+
+impl std::str::FromStr for BankPreset {
+    type Err = crate::error::ExtractorError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "hdfc" => Some(Self::Hdfc),
-            "sbi" => Some(Self::Sbi),
-            "canara" => Some(Self::Canara),
-            "union" => Some(Self::Union),
-            "uco" => Some(Self::Uco),
-            "indian" => Some(Self::Indian),
-            "hpscb" => Some(Self::Hpscb),
-            "icici" => Some(Self::Icici),
-            "pnb" => Some(Self::Pnb),
-            "kotak" => Some(Self::Kotak),
-            "axis" => Some(Self::Axis),
-            "bob" | "baroda" => Some(Self::Bob),
-            "yes" => Some(Self::Yes),
-            "idfc" => Some(Self::Idfc),
-            "indusind" => Some(Self::Indusind),
+            "hdfc" => Ok(Self::Hdfc),
+            "sbi" => Ok(Self::Sbi),
+            "canara" => Ok(Self::Canara),
+            "union" => Ok(Self::Union),
+            "uco" => Ok(Self::Uco),
+            "indian" => Ok(Self::Indian),
+            "hpscb" => Ok(Self::Hpscb),
+            "icici" => Ok(Self::Icici),
+            "pnb" => Ok(Self::Pnb),
+            "kotak" => Ok(Self::Kotak),
+            "axis" => Ok(Self::Axis),
+            "bob" | "baroda" => Ok(Self::Bob),
+            "yes" => Ok(Self::Yes),
+            "idfc" => Ok(Self::Idfc),
+            "indusind" => Ok(Self::Indusind),
             "hpgb" | "himachal pradesh gramin bank" | "himachal pradesh gramin" | "hpgramin" => {
-                Some(Self::Hpgb)
+                Ok(Self::Hpgb)
             }
-            _ => None,
+            _ => Err(crate::error::ExtractorError::InvalidConfig(format!(
+                "Unknown bank preset: '{}'",
+                s
+            ))),
         }
     }
 }
