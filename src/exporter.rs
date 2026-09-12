@@ -24,8 +24,51 @@ use crate::models::ExtractedTable;
 /// assert!(text.contains("DATE,DESCRIPTION"));
 /// assert!(text.contains("01/02/2023,Test"));
 /// ```
-pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
-    let mut wtr = csv::Writer::from_writer(Vec::new());
+fn compute_column_totals(table: &ExtractedTable) -> Vec<(bool, f64, usize)> {
+    let num_cols = table.active_indices.len();
+    let mut is_num = vec![false; num_cols];
+    let mut sums = vec![0.0; num_cols];
+    let mut counts = vec![0; num_cols];
+
+    for (col_idx, _active_idx) in table.active_indices.iter().enumerate() {
+        if col_idx == 0 {
+            continue;
+        }
+        let header_upper = table
+            .headers
+            .get(col_idx)
+            .map(|h| h.to_uppercase())
+            .unwrap_or_default();
+
+        is_num[col_idx] = header_upper.contains("DEBIT")
+            || header_upper.contains("CREDIT")
+            || header_upper.contains("AMOUNT")
+            || header_upper.contains("WITHDRAWAL")
+            || header_upper.contains("DEPOSIT");
+    }
+
+    for r in &table.rows {
+        for (col_idx, &active_idx) in table.active_indices.iter().enumerate() {
+            if is_num[col_idx]
+                && let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c))
+            {
+                sums[col_idx] += val;
+                counts[col_idx] += 1;
+            }
+        }
+    }
+
+    let mut result = Vec::with_capacity(num_cols);
+    for col_idx in 0..num_cols {
+        result.push((is_num[col_idx], sums[col_idx], counts[col_idx]));
+    }
+    result
+}
+
+fn export_delimited(table: &ExtractedTable, delimiter: u8) -> Result<Vec<u8>, ExtractorError> {
+    let mut wtr = csv::WriterBuilder::new()
+        .delimiter(delimiter)
+        .from_writer(Vec::new());
 
     // Write headers
     wtr.write_record(&table.headers)
@@ -48,34 +91,12 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
 
     // Append summary row if table has rows
     if !table.rows.is_empty() {
-        let mut summary_row_data = Vec::new();
-        for (col_idx, &active_idx) in table.active_indices.iter().enumerate() {
+        let totals = compute_column_totals(table);
+        let mut summary_row_data = Vec::with_capacity(table.active_indices.len());
+        for (col_idx, &(is_number_col, sum, count)) in totals.iter().enumerate() {
             if col_idx == 0 {
                 summary_row_data.push(format!("TOTALS ({} rows)", table.rows.len()));
-                continue;
-            }
-            let header_upper = table
-                .headers
-                .get(col_idx)
-                .map(|h| h.to_uppercase())
-                .unwrap_or_default();
-
-            let is_number_col = header_upper.contains("DEBIT")
-                || header_upper.contains("CREDIT")
-                || header_upper.contains("AMOUNT")
-                || header_upper.contains("WITHDRAWAL")
-                || header_upper.contains("DEPOSIT");
-
-            let mut sum = 0.0;
-            let mut count = 0;
-            for r in &table.rows {
-                if let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c)) {
-                    sum += val;
-                    count += 1;
-                }
-            }
-
-            if is_number_col && count > 0 {
+            } else if is_number_col && count > 0 {
                 summary_row_data.push(format!("{:.2}", sum));
             } else {
                 summary_row_data.push(String::new());
@@ -89,50 +110,78 @@ pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
         .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))
 }
 
+pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
+    export_delimited(table, b',')
+}
+
 use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook};
 
 /// Parses a monetary amount string with support for currency symbols,
 /// comma grouping, accounting parentheses, and trailing negative signs.
+#[must_use]
 pub fn parse_amount(val: &str) -> Option<f64> {
-    let mut clean = val.trim();
+    let clean = val.trim();
     if clean.is_empty() {
         return None;
     }
-    let is_parenthesized_outer = clean.starts_with('(') && clean.ends_with(')');
-    if is_parenthesized_outer {
-        clean = clean[1..clean.len() - 1].trim();
-    }
-    let mut cleaned = clean
-        .replace(['$', '£', '€', '₹', ','], "")
-        .trim()
-        .to_string();
 
-    let is_parenthesized_inner = cleaned.starts_with('(') && cleaned.ends_with(')');
+    let is_parenthesized_outer = clean.starts_with('(') && clean.ends_with(')');
+    let s = if is_parenthesized_outer {
+        clean[1..clean.len() - 1].trim()
+    } else {
+        clean
+    };
+
+    // Filter out currency symbols, commas, and parenthetical markers into a single buffer
+    let mut filtered = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '$' | '£' | '€' | '₹' | ',' => {}
+            _ => filtered.push(c),
+        }
+    }
+
+    let mut inner = filtered.trim();
+    let is_parenthesized_inner = inner.starts_with('(') && inner.ends_with(')');
     if is_parenthesized_inner {
-        cleaned = cleaned[1..cleaned.len() - 1].trim().to_string();
+        inner = inner[1..inner.len() - 1].trim();
     }
 
     let is_negative = is_parenthesized_outer || is_parenthesized_inner;
 
-    let keywords = [
-        "Rs.", "RS.", "rs.", "Rs", "RS", "rs", "INR", "inr", "Cr.", "CR.", "cr.", "Cr", "CR", "cr",
-        "Dr.", "DR.", "dr.", "Dr", "DR", "dr",
-    ];
-    for kw in &keywords {
-        cleaned = cleaned.replace(kw, "");
+    // Strip case-insensitive keyword tokens (Rs., INR, Dr., Cr., etc.)
+    const KEYWORDS: &[&str] = &["rs.", "rs", "inr", "cr.", "cr", "dr.", "dr"];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let lower = inner.to_ascii_lowercase();
+        for &kw in KEYWORDS {
+            if lower.starts_with(kw) {
+                inner = inner[kw.len()..].trim();
+                changed = true;
+                break;
+            } else if lower.ends_with(kw) {
+                inner = inner[..inner.len() - kw.len()].trim();
+                changed = true;
+                break;
+            }
+        }
     }
-    let mut cleaned = cleaned.trim().to_string();
-    if cleaned.is_empty() {
+
+    if inner.is_empty() {
         return None;
     }
 
     let mut trailing_minus = false;
-    if cleaned.ends_with('-') {
+    if let Some(stripped) = inner.strip_suffix('-') {
         trailing_minus = true;
-        cleaned = cleaned[..cleaned.len() - 1].trim().to_string();
+        inner = stripped.trim();
+    } else if let Some(stripped) = inner.strip_prefix('-') {
+        inner = stripped.trim();
+        trailing_minus = true;
     }
 
-    let num = cleaned.parse::<f64>().ok()?;
+    let num = inner.parse::<f64>().ok()?;
     if is_negative || trailing_minus {
         Some(-num.abs())
     } else {
@@ -362,31 +411,11 @@ pub fn export_to_xlsx(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
             .write_string_with_format(summary_row, 0, &total_label, &summary_label_fmt)
             .map_err(|e| ExtractorError::XlsxWriteError(e.to_string()))?;
 
-        for (col_idx, &active_idx) in table.active_indices.iter().enumerate() {
+        let totals = compute_column_totals(table);
+        for (col_idx, &(is_number_col, sum, count)) in totals.iter().enumerate() {
             if col_idx == 0 {
                 continue;
             }
-            let header_upper = table
-                .headers
-                .get(col_idx)
-                .map(|h| h.to_uppercase())
-                .unwrap_or_default();
-
-            let is_number_col = header_upper.contains("DEBIT")
-                || header_upper.contains("CREDIT")
-                || header_upper.contains("AMOUNT")
-                || header_upper.contains("WITHDRAWAL")
-                || header_upper.contains("DEPOSIT");
-
-            let mut sum = 0.0;
-            let mut count = 0;
-            for r in &table.rows {
-                if let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c)) {
-                    sum += val;
-                    count += 1;
-                }
-            }
-
             if is_number_col && count > 0 {
                 worksheet
                     .write_number_with_format(summary_row, col_idx as u16, sum, &summary_num_fmt)
@@ -461,70 +490,7 @@ pub fn export_to_json(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError>
 /// assert!(text.contains("01/02/2023\tTest"));
 /// ```
 pub fn export_to_tsv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
-    let mut wtr = csv::WriterBuilder::new()
-        .delimiter(b'\t')
-        .from_writer(Vec::new());
-
-    // Write headers
-    wtr.write_record(&table.headers)
-        .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
-
-    // Write rows (only active indices)
-    let mut row_data = Vec::with_capacity(table.active_indices.len());
-    for r in &table.rows {
-        row_data.clear();
-        for &idx in &table.active_indices {
-            if idx < r.cells.len() {
-                row_data.push(r.cells[idx].as_str());
-            } else {
-                row_data.push("");
-            }
-        }
-        wtr.write_record(&row_data)
-            .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
-    }
-
-    // Append summary row if table has rows
-    if !table.rows.is_empty() {
-        let mut summary_row_data = Vec::new();
-        for (col_idx, &active_idx) in table.active_indices.iter().enumerate() {
-            if col_idx == 0 {
-                summary_row_data.push(format!("TOTALS ({} rows)", table.rows.len()));
-                continue;
-            }
-            let header_upper = table
-                .headers
-                .get(col_idx)
-                .map(|h| h.to_uppercase())
-                .unwrap_or_default();
-
-            let is_number_col = header_upper.contains("DEBIT")
-                || header_upper.contains("CREDIT")
-                || header_upper.contains("AMOUNT")
-                || header_upper.contains("WITHDRAWAL")
-                || header_upper.contains("DEPOSIT");
-
-            let mut sum = 0.0;
-            let mut count = 0;
-            for r in &table.rows {
-                if let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c)) {
-                    sum += val;
-                    count += 1;
-                }
-            }
-
-            if is_number_col && count > 0 {
-                summary_row_data.push(format!("{:.2}", sum));
-            } else {
-                summary_row_data.push(String::new());
-            }
-        }
-        wtr.write_record(summary_row_data)
-            .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))?;
-    }
-
-    wtr.into_inner()
-        .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))
+    export_delimited(table, b'\t')
 }
 
 #[cfg(test)]

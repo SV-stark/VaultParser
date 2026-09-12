@@ -86,35 +86,35 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
         .unwrap_or(0);
     let temp_path =
         std::env::temp_dir().join(format!("vp_detect_{}_{}.pdf", std::process::id(), ts));
-    fs::write(&temp_path, &file_bytes)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let (preset_key, preset_name, guides) = tokio::task::spawn_blocking(move || {
-        struct TempFileGuard(std::path::PathBuf);
-        impl Drop for TempFileGuard {
-            fn drop(&mut self) {
-                let _ = fs::remove_file(&self.0);
+    let (preset_key, preset_name, guides) =
+        tokio::task::spawn_blocking(move || -> Result<_, String> {
+            struct TempFileGuard(std::path::PathBuf);
+            impl Drop for TempFileGuard {
+                fn drop(&mut self) {
+                    let _ = fs::remove_file(&self.0);
+                }
             }
-        }
-        let _guard = TempFileGuard(temp_path.clone());
+            fs::write(&temp_path, &file_bytes).map_err(|e| e.to_string())?;
+            let _guard = TempFileGuard(temp_path.clone());
 
-        let preset_opt = detect_preset_from_file(&temp_path, password.as_deref())
-            .ok()
-            .flatten();
-        let (p_key, p_name) = match preset_opt {
-            Some(preset) => (
-                Some(preset.key().to_string()),
-                Some(preset.name().to_string()),
-            ),
-            None => (None, None),
-        };
-        let guides =
-            detect_column_guides(&temp_path, password.as_deref(), y_top_trim, y_bottom_trim)
-                .unwrap_or_default();
-        (p_key, p_name, guides)
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let preset_opt = detect_preset_from_file(&temp_path, password.as_deref())
+                .ok()
+                .flatten();
+            let (p_key, p_name) = match preset_opt {
+                Some(preset) => (
+                    Some(preset.key().to_string()),
+                    Some(preset.name().to_string()),
+                ),
+                None => (None, None),
+            };
+            let guides =
+                detect_column_guides(&temp_path, password.as_deref(), y_top_trim, y_bottom_trim)
+                    .unwrap_or_default();
+            Ok((p_key, p_name, guides))
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let response = serde_json::json!({
         "preset": preset_key,
@@ -361,36 +361,39 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
             "xlsx" => {
                 res_headers.insert(
                     header::CONTENT_TYPE,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        .parse()
-                        .unwrap(),
+                    axum::http::HeaderValue::from_static(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
                 );
                 res_headers.insert(
                     header::CONTENT_DISPOSITION,
-                    "attachment; filename=converted_statement.xlsx"
-                        .parse()
-                        .unwrap(),
+                    axum::http::HeaderValue::from_static(
+                        "attachment; filename=converted_statement.xlsx",
+                    ),
                 );
             }
             "csv" => {
-                res_headers.insert(header::CONTENT_TYPE, "text/csv".parse().unwrap());
+                res_headers.insert(
+                    header::CONTENT_TYPE,
+                    axum::http::HeaderValue::from_static("text/csv"),
+                );
                 res_headers.insert(
                     header::CONTENT_DISPOSITION,
-                    "attachment; filename=converted_statement.csv"
-                        .parse()
-                        .unwrap(),
+                    axum::http::HeaderValue::from_static(
+                        "attachment; filename=converted_statement.csv",
+                    ),
                 );
             }
             "tsv" => {
                 res_headers.insert(
                     header::CONTENT_TYPE,
-                    "text/tab-separated-values".parse().unwrap(),
+                    axum::http::HeaderValue::from_static("text/tab-separated-values"),
                 );
                 res_headers.insert(
                     header::CONTENT_DISPOSITION,
-                    "attachment; filename=converted_statement.tsv"
-                        .parse()
-                        .unwrap(),
+                    axum::http::HeaderValue::from_static(
+                        "attachment; filename=converted_statement.tsv",
+                    ),
                 );
             }
             _ => {}
@@ -407,7 +410,7 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -438,12 +441,8 @@ async fn main() {
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let addr = format!("{}:{}", host, port);
 
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::error!("Failed to bind to {}: {}", addr, e);
-            std::process::exit(1);
-        });
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Server running on http://{}", addr);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+    Ok(())
 }

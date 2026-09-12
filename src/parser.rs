@@ -564,27 +564,23 @@ pub fn extract_from_file<P: AsRef<Path>>(
         let top_px = config.y_top_trim * height;
         let bottom_px = config.y_bottom_trim * height;
 
-        let words = page.extract_words();
-        let filtered_words: Vec<&pdfsink_rs::Word> = words
-            .iter()
+        let mut items: Vec<WordItem> = page
+            .extract_words()
+            .into_iter()
             .filter(|w| w.top >= top_px && w.top <= bottom_px)
-            .collect();
-
-        if filtered_words.is_empty() {
-            continue;
-        }
-
-        let mut items: Vec<WordItem> = filtered_words
-            .iter()
             .map(|w| WordItem {
-                text: w.text.clone(),
+                text: w.text,
                 x: w.x0,
                 y: w.top,
                 width: w.x1 - w.x0,
             })
             .collect();
 
-        items.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal));
+        if items.is_empty() {
+            continue;
+        }
+
+        items.sort_by(|a, b| a.y.total_cmp(&b.y));
 
         let mut grouped_rows: Vec<GroupedRow> = Vec::new();
         for item in items {
@@ -609,30 +605,28 @@ pub fn extract_from_file<P: AsRef<Path>>(
         for r in &mut grouped_rows {
             let total_y: f64 = r.items.iter().map(|it| it.y).sum();
             r.y = total_y / r.items.len() as f64;
-            r.items
-                .sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+            r.items.sort_by(|a, b| a.x.total_cmp(&b.x));
         }
-        grouped_rows.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal));
+        grouped_rows.sort_by(|a, b| a.y.total_cmp(&b.y));
 
         let page_guides: Vec<f64> = config.col_guides.iter().map(|&g| g * width).collect();
         let num_cols = page_guides.len() + 1;
 
-        let mut page_rows = Vec::new();
-        for (row_idx, r) in grouped_rows.iter().enumerate() {
+        let mut page_rows = Vec::with_capacity(grouped_rows.len());
+        for (row_idx, r) in grouped_rows.into_iter().enumerate() {
             let mut cell_contents = vec![Vec::new(); num_cols];
-            for item in &r.items {
+            for item in r.items {
                 let center_x = item.x + item.width / 2.0;
                 let mut col_idx = 0;
                 while col_idx < page_guides.len() && center_x > page_guides[col_idx] {
                     col_idx += 1;
                 }
-                cell_contents[col_idx].push(item.clone());
+                cell_contents[col_idx].push(item);
             }
 
-            let mut cells = Vec::new();
-            for items_in_col in &mut cell_contents {
-                items_in_col
-                    .sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+            let mut cells = Vec::with_capacity(num_cols);
+            for mut items_in_col in cell_contents {
+                items_in_col.sort_by(|a, b| a.x.total_cmp(&b.x));
                 let cell_text = items_in_col
                     .iter()
                     .map(|it| it.text.as_str())
@@ -656,20 +650,27 @@ pub fn extract_from_file<P: AsRef<Path>>(
         let page_str = (page_idx + 1).to_string();
 
         // Handle manual row deletions (support both stable row ID and legacy y-key)
-        if let Some(deletes) = config.deleted_rows.get(&page_str) {
+        if let Some(deletes) = config.deleted_rows.get(&page_str)
+            && !deletes.is_empty()
+        {
             page_rows.retain(|row| {
+                if deletes.get(&row.id).copied().unwrap_or(false) {
+                    return false;
+                }
                 let y_key = format!("{:.2}", row.y);
-                let id_deleted = deletes.get(&row.id).copied().unwrap_or(false);
-                let y_deleted = deletes.get(&y_key).copied().unwrap_or(false);
-                !id_deleted && !y_deleted
+                !deletes.get(&y_key).copied().unwrap_or(false)
             });
         }
 
         // Handle manual cell edits (support both stable row ID and legacy y-key)
-        if let Some(edits) = config.manual_edits.get(&page_str) {
+        if let Some(edits) = config.manual_edits.get(&page_str)
+            && !edits.is_empty()
+        {
             for row in &mut page_rows {
-                let y_key = format!("{:.2}", row.y);
-                let col_edits_opt = edits.get(&row.id).or_else(|| edits.get(&y_key));
+                let col_edits_opt = edits.get(&row.id).or_else(|| {
+                    let y_key = format!("{:.2}", row.y);
+                    edits.get(&y_key)
+                });
                 if let Some(col_edits) = col_edits_opt {
                     for (col_idx_str, val) in col_edits {
                         if let Some(cell) = col_idx_str
@@ -702,7 +703,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
         }
 
         if let Some(desc_idx) = config.merge_multi_line.then_some(desc_idx).flatten() {
-            let mut merged = Vec::new();
+            let mut merged: Vec<PageRow> = Vec::with_capacity(page_rows.len());
             for row in page_rows {
                 let cell_desc = row.cells.get(desc_idx).map(|s| s.as_str()).unwrap_or("");
                 let is_date_empty =
@@ -723,9 +724,10 @@ pub fn extract_from_file<P: AsRef<Path>>(
                     && is_balance_empty
                     && !cell_desc.is_empty();
 
-                if is_continuation && !merged.is_empty() {
-                    let last_row: &mut PageRow = merged.last_mut().unwrap();
-                    if let Some(last_desc) = last_row.cells.get_mut(desc_idx) {
+                if is_continuation {
+                    if let Some(last_row) = merged.last_mut()
+                        && let Some(last_desc) = last_row.cells.get_mut(desc_idx)
+                    {
                         *last_desc = format!("{} {}", last_desc, cell_desc).trim().to_string();
                     }
                 } else {

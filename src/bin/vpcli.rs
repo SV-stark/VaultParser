@@ -180,11 +180,10 @@ fn load_preset_config(
         c
     } else {
         spinner.finish_and_clear();
-        eprintln!("Error: Unknown bank preset '{}'.", preset_str);
-        eprintln!(
-            "Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, hpgb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file"
-        );
-        std::process::exit(1);
+        return Err(format!(
+            "Unknown bank preset '{}'. Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, hpgb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file",
+            preset_str
+        ).into());
     };
 
     config.categorize = categorize;
@@ -235,8 +234,7 @@ fn run_extraction_process(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pdf_path = Path::new(input_pdf);
     if !pdf_path.exists() {
-        eprintln!("Error: PDF file '{}' does not exist.", input_pdf);
-        std::process::exit(1);
+        return Err(format!("PDF file '{}' does not exist.", input_pdf).into());
     }
 
     let table = process_single_pdf(

@@ -23,7 +23,14 @@ pub enum ExtractorError {
     PasswordError(String),
 }
 
-impl std::error::Error for ExtractorError {}
+impl std::error::Error for ExtractorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IOError(err) => Some(err),
+            _ => None,
+        }
+    }
+}
 
 impl fmt::Display for ExtractorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

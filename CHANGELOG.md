@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2026-09-12
+
+### Added
+- Implemented `std::fmt::Display`, `Hash`, `PartialOrd`, and `Ord` traits for `BankPreset`.
+- Implemented `PartialEq` and `#[serde(default)]` on all optional fields for `ExtractionConfig`.
+- Implemented `std::error::Error::source` on `ExtractorError` to preserve nested I/O error source chains.
+- Added release profile optimizations (`lto = "thin"`, `codegen-units = 1`, `panic = "abort"`, `strip = true`) in `Cargo.toml`.
+
+### Changed
+- Refactored `parse_amount` to perform single-pass zero-redundant-allocation string parsing, replacing repeated `.replace()` allocations.
+- Optimized word extraction and row clustering in `parser.rs` to consume words and grouped rows by value via `into_iter()`, eliminating unnecessary word cloning.
+- Pre-calculated summary totals in exporters in a single $O(\text{Rows})$ pass, eliminating nested $O(\text{Cols} \times \text{Rows})$ re-parsing loops.
+- Deduplicated CSV and TSV exporter logic into a shared `export_delimited` function.
+- Replaced partial float comparisons with `f64::total_cmp` for reliable, NaN-safe sorting across column guides and coordinate clustering.
+- Replaced `.parse().unwrap()` runtime MIME string parsing with compile-time verified `HeaderValue::from_static`.
+- Replaced `std::process::exit(1)` in CLI subroutines and unwrapped panics in server `main()` with graceful error propagation.
+
 ## [0.3.6] - 2026-09-03
 
 ### Added

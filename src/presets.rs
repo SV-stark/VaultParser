@@ -4,7 +4,7 @@ use crate::config::ExtractionConfig;
 ///
 /// Each preset contains standard column coordinates and label mappings
 /// for common Indian banks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BankPreset {
     /// HDFC Bank India statement template.
     Hdfc,
@@ -40,8 +40,15 @@ pub enum BankPreset {
     Hpgb,
 }
 
+impl std::fmt::Display for BankPreset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
 impl BankPreset {
     /// Returns the human-readable display name of the bank preset.
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Hdfc => "HDFC Bank India",
@@ -73,6 +80,7 @@ impl BankPreset {
     /// assert!(config.filter_only_date);
     /// assert_eq!(config.col_mappings.len(), config.col_guides.len() + 1);
     /// ```
+    #[must_use]
     pub fn config(&self) -> ExtractionConfig {
         let mut config = ExtractionConfig::default();
         match self {
@@ -292,6 +300,7 @@ impl BankPreset {
     }
 
     /// Returns the lowercase machine key for this bank preset.
+    #[must_use]
     pub fn key(&self) -> &'static str {
         match self {
             Self::Hdfc => "hdfc",
@@ -314,6 +323,7 @@ impl BankPreset {
     }
 
     /// Returns a list of all supported bank presets.
+    #[must_use]
     pub fn all() -> &'static [BankPreset] {
         &[
             Self::Hdfc,
@@ -347,6 +357,7 @@ impl BankPreset {
     /// assert_eq!(BankPreset::from_str("nope"), None);
     /// ```
     #[allow(clippy::should_implement_trait)]
+    #[must_use]
     pub fn from_str(s: &str) -> Option<Self> {
         s.parse::<Self>().ok()
     }
