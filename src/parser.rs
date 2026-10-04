@@ -43,6 +43,7 @@ fn is_possible_date(val: &str) -> bool {
             "jul",
             "aug",
             "sep",
+            "sept",
             "oct",
             "nov",
             "dec",
@@ -558,6 +559,18 @@ pub fn extract_from_file<P: AsRef<Path>>(
     let mut all_rows = Vec::new();
     let pages = pdf.pages();
 
+    // Parse the inclusive date-range bounds once up front instead of re-parsing
+    // them for every row on every page.
+    let from_naive = config.from_date.as_deref().and_then(parse_date_naive);
+    let to_naive = config.to_date.as_deref().and_then(parse_date_naive);
+    let has_date_range = from_naive.is_some() || to_naive.is_some();
+    if has_date_range && !config.col_mappings.iter().any(|m| m == "date") {
+        warn!(
+            "A from_date/to_date range was supplied but no column is mapped to 'date'; \
+             the date range filter will be skipped."
+        );
+    }
+
     for (page_idx, page) in pages.iter().enumerate() {
         let width = page.width;
         let height = page.height;
@@ -584,21 +597,28 @@ pub fn extract_from_file<P: AsRef<Path>>(
 
         let mut grouped_rows: Vec<GroupedRow> = Vec::new();
         for item in items {
-            let mut found_row_idx = None;
+            // Attach the word to the *nearest* anchor inside the tolerance
+            // window, not merely the first one found. Scanning in insertion
+            // order made a word jump into the previous row whenever two
+            // consecutive anchors sat closer together than `y_tolerance`
+            // (e.g. anchors at 100 and 106 with y_tolerance 6 swallowed a
+            // word at y=105.5 that belongs to the 106 row).
+            let mut best_idx: Option<usize> = None;
+            let mut best_dist = f64::INFINITY;
             for (idx, r) in grouped_rows.iter().enumerate() {
-                if (r.anchor_y - item.y).abs() <= config.y_tolerance {
-                    found_row_idx = Some(idx);
-                    break;
+                let dist = (r.anchor_y - item.y).abs();
+                if dist <= config.y_tolerance && dist < best_dist {
+                    best_dist = dist;
+                    best_idx = Some(idx);
                 }
             }
-            if let Some(idx) = found_row_idx {
-                grouped_rows[idx].items.push(item);
-            } else {
-                grouped_rows.push(GroupedRow {
+            match best_idx {
+                Some(idx) => grouped_rows[idx].items.push(item),
+                None => grouped_rows.push(GroupedRow {
                     anchor_y: item.y,
                     y: item.y,
                     items: vec![item],
-                });
+                }),
             }
         }
 
@@ -773,11 +793,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
             }
 
             // Date Range Filtering
-            let from_naive = config.from_date.as_deref().and_then(parse_date_naive);
-            let to_naive = config.to_date.as_deref().and_then(parse_date_naive);
-
-            if (from_naive.is_some() || to_naive.is_some()) && date_idx.is_some() {
-                let d_idx = date_idx.unwrap_or(0);
+            if has_date_range && let Some(d_idx) = date_idx {
                 if let Some(row_d) = row.cells.get(d_idx).and_then(|c| parse_date_naive(c)) {
                     if from_naive.is_some_and(|from_d| row_d < from_d) {
                         keep = false;

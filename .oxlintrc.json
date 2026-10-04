@@ -1,7 +1,10 @@
 {
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
   "rules": {
     "no-unused-vars": "warn",
     "no-undef": "warn"
   }
 }
-

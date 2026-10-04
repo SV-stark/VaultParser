@@ -51,12 +51,15 @@ struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    // Initialize tracing
+    // Initialize tracing. Diagnostics MUST go to stderr: stdout is reserved for
+    // the extracted payload (notably raw XLSX bytes when no output path is given),
+    // and the default stdout sink would corrupt it.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "vaultparser=info".into()),
         )
+        .with_writer(std::io::stderr)
         .init();
 
     match (args.input_path, args.preset) {
@@ -263,9 +266,23 @@ fn run_extraction_process(
         println!("Saved {} output to: {}", ext.to_uppercase(), final_path);
     } else {
         let (bytes, ext) = get_format_bytes(&table, target_format)?;
-        let text = String::from_utf8(bytes)?;
-        println!("\n--- Extracted Transactions ({}) ---", ext.to_uppercase());
-        println!("{}", text);
+        if ext == "xlsx" {
+            // XLSX is a binary (ZIP) container and is not valid UTF-8, so stream
+            // the raw bytes to stdout instead of decoding them as text.
+            use std::io::Write;
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(&bytes)?;
+            stdout.flush()?;
+            eprintln!(
+                "\nWrote {} bytes of {} binary data to stdout (redirect it to a file to save).",
+                bytes.len(),
+                ext.to_uppercase()
+            );
+        } else {
+            let text = String::from_utf8(bytes)?;
+            println!("\n--- Extracted Transactions ({}) ---", ext.to_uppercase());
+            println!("{}", text);
+        }
     }
 
     Ok(())
@@ -396,7 +413,7 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut preset = String::new();
     loop {
-        print!("👉 Select option (1-17) [default: 1]: ");
+        print!("👉 Select option (1-18) [default: 1]: ");
         std::io::Write::flush(&mut std::io::stdout())?;
         preset.clear();
         std::io::stdin().read_line(&mut preset)?;

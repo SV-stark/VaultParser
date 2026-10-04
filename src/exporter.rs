@@ -1,29 +1,12 @@
 use crate::error::ExtractorError;
 use crate::models::ExtractedTable;
 
-/// Converts an [`ExtractedTable`] into a UTF-8 CSV formatted byte vector.
+/// Aggregates per-column sums for the summary/totals row.
 ///
-/// Only non-skipped columns (based on active indices) are exported.
-///
-/// # Examples
-/// ```
-/// use vaultparser::{ExtractedTable, PageRow, exporter};
-///
-/// let table = ExtractedTable {
-///     headers: vec!["DATE".to_string(), "DESCRIPTION".to_string()],
-///     active_indices: vec![0, 1],
-///     rows: vec![PageRow {
-///         id: "row-0".to_string(),
-///         y: 100.0,
-///         page: 1,
-///         cells: vec!["01/02/2023".to_string(), "Test".to_string()],
-///     }],
-/// };
-/// let csv = exporter::export_to_csv(&table).unwrap();
-/// let text = String::from_utf8(csv).unwrap();
-/// assert!(text.contains("DATE,DESCRIPTION"));
-/// assert!(text.contains("01/02/2023,Test"));
-/// ```
+/// Returns `(is_numeric_column, sum, populated_cell_count)` for every active
+/// column, in the same order as [`ExtractedTable::active_indices`]. Columns are
+/// only treated as numeric when their header names a monetary column; running
+/// balances are deliberately excluded because summing them is meaningless.
 fn compute_column_totals(table: &ExtractedTable) -> Vec<(bool, f64, usize)> {
     let num_cols = table.active_indices.len();
     let mut is_num = vec![false; num_cols];
@@ -110,6 +93,29 @@ fn export_delimited(table: &ExtractedTable, delimiter: u8) -> Result<Vec<u8>, Ex
         .map_err(|e| ExtractorError::CsvWriteError(e.to_string()))
 }
 
+/// Converts an [`ExtractedTable`] into a UTF-8 CSV formatted byte vector.
+///
+/// Only non-skipped columns (based on active indices) are exported.
+///
+/// # Examples
+/// ```
+/// use vaultparser::{ExtractedTable, PageRow, exporter};
+///
+/// let table = ExtractedTable {
+///     headers: vec!["DATE".to_string(), "DESCRIPTION".to_string()],
+///     active_indices: vec![0, 1],
+///     rows: vec![PageRow {
+///         id: "row-0".to_string(),
+///         y: 100.0,
+///         page: 1,
+///         cells: vec!["01/02/2023".to_string(), "Test".to_string()],
+///     }],
+/// };
+/// let csv = exporter::export_to_csv(&table).unwrap();
+/// let text = String::from_utf8(csv).unwrap();
+/// assert!(text.contains("DATE,DESCRIPTION"));
+/// assert!(text.contains("01/02/2023,Test"));
+/// ```
 pub fn export_to_csv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     export_delimited(table, b',')
 }

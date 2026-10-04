@@ -411,12 +411,13 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing
+    // Initialize tracing (diagnostics go to stderr so stdout stays reserved for payloads)
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "vaultparser=info,tower_http=info,axum=info".into()),
         )
+        .with_writer(std::io::stderr)
         .init();
 
     // Clean up temp directory on startup if it exists

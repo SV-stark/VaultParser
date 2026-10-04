@@ -77,18 +77,18 @@ const PRESETS = {
   },
   yes: {
     name: '🏦 YES Bank',
-    guides: [0.12, 0.45, 0.58, 0.72, 0.86],
+    guides: [0.12, 0.45, 0.58, 0.72, 0.85],
     mappings: ['date', 'description', 'reference', 'debit', 'credit', 'balance']
   },
   idfc: {
     name: '🏦 IDFC FIRST Bank',
-    guides: [0.11, 0.45, 0.58, 0.72, 0.85],
+    guides: [0.11, 0.40, 0.54, 0.68, 0.82],
     mappings: ['date', 'description', 'reference', 'debit', 'credit', 'balance']
   },
   indusind: {
     name: '🏦 IndusInd Bank',
-    guides: [0.10, 0.22, 0.55, 0.68, 0.80],
-    mappings: ['date', 'chq_no', 'description', 'debit', 'credit', 'balance']
+    guides: [0.12, 0.44, 0.56, 0.70, 0.84],
+    mappings: ['date', 'description', 'chq_no', 'debit', 'credit', 'balance']
   },
   custom: {
     name: '⚙️ Custom Layout',
@@ -115,6 +115,9 @@ let skipHeaderRows = 0;
 let skipFooterRows = 0;
 let filterDate = true;
 let filterAmount = false;
+
+// Password forwarded to the native Rust backend for encrypted statements
+let pdfPassword = '';
 
 // Visual Page Crop (in percentage points)
 let topCropPct = 0;
@@ -183,6 +186,27 @@ const tableEmptyMessage = document.getElementById('table-empty-message');
 
 // Initial Setup
 bindEvents();
+syncPresetsFromBackend();
+
+// Keep the hardcoded PRESETS table above in lockstep with the canonical Rust
+// definitions. They previously drifted (yes/idfc/indusind guides and the
+// indusind column mapping order), which silently produced wrong extractions
+// in the browser while the CLI stayed correct.
+async function syncPresetsFromBackend() {
+  try {
+    const res = await fetch('/api/presets');
+    if (!res.ok) return;
+    const backendPresets = await res.json();
+    for (const p of backendPresets) {
+      if (p && p.key && PRESETS[p.key] && Array.isArray(p.guides) && Array.isArray(p.mappings)) {
+        PRESETS[p.key].guides = p.guides;
+        PRESETS[p.key].mappings = p.mappings;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not sync presets from backend; using bundled values.', err);
+  }
+}
 
 function bindEvents() {
   // Drag & drop
@@ -569,7 +593,7 @@ async function renderPDFPage(pageNum) {
 function autoDetectColumns(items, width) {
   if (items.length === 0) return [];
   const resolution = Math.round(width);
-  const coverage = new Array(resolution).fill(0);
+  const coverage = Array.from({ length: resolution }, () => 0);
   
   items.forEach(item => {
     const xStart = Math.max(0, Math.floor(item.x));
@@ -901,6 +925,7 @@ async function triggerConversion() {
   formData.append('y_top_trim', (topCropPct / 100).toFixed(4));
   formData.append('y_bottom_trim', (bottomCropPct / 100).toFixed(4));
   formData.append('format', 'json');
+  if (pdfPassword) formData.append('password', pdfPassword);
   
   try {
     const res = await fetch('/api/convert', {
@@ -1060,6 +1085,7 @@ async function handleBulkExport(format) {
   formData.append('y_top_trim', (topCropPct / 100).toFixed(4));
   formData.append('y_bottom_trim', (bottomCropPct / 100).toFixed(4));
   formData.append('format', format);
+  if (pdfPassword) formData.append('password', pdfPassword);
   
   try {
     const res = await fetch('/api/convert', {

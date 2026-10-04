@@ -165,7 +165,7 @@ cargo run --release --bin vpcli -- ./statements/ sbi -f tsv --categorize --outpu
      [dependencies]
      vaultparser = "0.2.5"
      # Or with the optional web UI:
-     # vaultparser = { version = "0.2.5", features = ["web"] }
+     # vaultparser = { version = "0.3.8", features = ["web"] }
     ```
 2. **Define Configuration**: Use pre-configured bank presets or customize via the builder pattern (which returns a `Result` for validation since `v0.1.6`):
    ```rust

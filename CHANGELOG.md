@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] - 2026-10-04
+
+### Fixed
+- Fixed the web dashboard's **Copy TSV** button throwing `ReferenceError: pdfPassword is not defined`. `pdfPassword` was read but never declared, and `app.js` runs as an ES module (implicit strict mode), so the handler aborted before ever calling the backend.
+- Fixed the web dashboard forwarding **no PDF password** on live preview (`/api/convert` JSON) and on CSV/TSV/XLSX export, so encrypted statements rendered but could not be previewed or exported. Password is now sent on every conversion request.
+- Fixed **preset drift between the Rust backend and the web UI**: `yes` (last guide `0.86` → `0.85`), `idfc` (guides were a duplicate of the `yes` set → `[0.11, 0.40, 0.54, 0.68, 0.82]`), and `indusind` (guides `[0.10, 0.22, 0.55, 0.68, 0.80]` → `[0.12, 0.44, 0.56, 0.70, 0.84]`, plus `chq_no`/`description` mapping order corrected). The UI silently mis-parsed these three banks while the CLI stayed correct.
+- Fixed `tracing_subscriber` logging to **stdout**, which corrupted binary payloads. `vpcli <pdf> <bank> --format xlsx` without an output path failed with `Utf8Error: invalid utf-8 sequence`, and even after the encoding fix the leading log lines made the redirect an invalid ZIP. Both `vaultparser` and `vpcli` now write diagnostics to stderr.
+- Fixed row clustering in `extract_from_file` to attach each word to the **nearest** row anchor within `y_tolerance` instead of the first anchor found in insertion order. Previously a word was pulled into the preceding row whenever two consecutive anchors sat closer together than `y_tolerance` (e.g. anchors at 100 and 106 with tolerance 6 stole a word at y=105.5). Verified byte-identical output on the bundled HDFC and HPGB statements.
+- Fixed the interactive wizard advertising `Select option (1-17)` while offering 18 choices.
+
+### Changed
+- The web UI now hydrates its preset table from the native `GET /api/presets` endpoint at startup, so the Rust `BankPreset` definitions are the single source of truth and can no longer silently drift.
+- Hoisted `from_date`/`to_date` parsing out of the per-row filter loop in `extract_from_file`, removing two redundant `chrono` parses for every row on every page.
+- Emit a warning when `from_date`/`to_date` are supplied but no column is mapped to `date`, instead of silently ignoring the filter.
+- Documented `exporter::export_to_csv` correctly. Its rustdoc and doctest were attached to the private `compute_column_totals` helper, leaving the public `export_to_csv` undocumented on docs.rs.
+- Declared browser globals in `.oxlintrc.json` (`env: browser, es2024`). ~130 `no-undef` false positives on `document`/`fetch`/`FormData`/etc. were drowning out the genuine `pdfPassword` defect.
+- Updated dependencies in `Cargo.lock` to latest semver-compatible versions.
+- Ran `cargo fmt`.
+
 ## [0.3.7] - 2026-09-12
 
 ### Added
