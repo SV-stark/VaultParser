@@ -3,8 +3,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use vaultparser::exporter::{export_to_csv, export_to_json, export_to_tsv, export_to_xlsx};
 use vaultparser::{
-    BankPreset, ExtractedTable, ExtractionConfig, detect_column_guides, detect_preset_from_file,
-    extract_from_file,
+    BankPreset, ExtractedTable, ExtractionConfig, detect_column_guides, detect_column_mappings,
+    detect_preset_from_file, extract_from_file,
 };
 
 #[derive(Parser, Debug)]
@@ -156,14 +156,13 @@ fn load_preset_config(
             let guides = detect_column_guides(pdf_path, password, 0.0, 1.0)?;
             spinner.println(format!("Auto-detected column boundaries: {:?}", guides));
 
-            let mut mappings = vec!["description".to_string()];
-            for idx in 1..=guides.len() {
-                mappings.push(format!("column_{}", idx));
-            }
+            let mappings = detect_column_mappings(pdf_path, password, &guides)?;
+            spinner.println(format!("Inferred column mappings: {:?}", mappings));
 
             ExtractionConfig::builder()
                 .col_guides(guides)
                 .col_mappings(mappings)
+                .filter_only_date(true)
                 .password(password.map(String::from))
                 .build()?
         }

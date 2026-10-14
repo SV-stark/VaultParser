@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.9] - 2026-10-14
+
+### Changed
+- Updated dependencies via `cargo update`, including `pdfsink-rs 0.2.20` / `clark-pdf-extract 0.12.1`.
+- Improved row clustering to keep each clustered row's vertical span within `y_tolerance`.
+- Improved cell normalization by removing control characters and collapsing whitespace runs.
+- Improved unknown-bank auto mode by inferring column mappings from first-page header text.
+- Improved date parsing for ordinal suffixes and additional formats.
+- Improved amount parsing for Indian/European decimal conventions and common zero spellings.
+- Added lightweight header/footer-row detection during extraction.
+- Added balance continuity, out-of-sequence date, and duplicate-row diagnostics.
+
+### Fixed
+- Fixed date-range filtering so rows with unparsable dates are retained rather than silently dropped.
+- Fixed month normalization for `Sept` / `Sept.`.
+- Fixed column assignment to use horizontal overlap rather than midpoint alone.
+- Fixed encryption fallback so blank/scanned PDFs do not trigger unnecessary `lopdf` decryption.
+- Fixed cross-page transaction narration carryover for continuation-only rows.
+
 ## [0.3.8] - 2026-10-04
 
 ### Fixed

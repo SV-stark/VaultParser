@@ -12,6 +12,8 @@ use crate::models::{ExtractedTable, PageRow, WordItem};
 #[derive(Debug, Clone)]
 struct GroupedRow {
     anchor_y: f64,
+    min_y: f64,
+    max_y: f64,
     y: f64,
     items: Vec<WordItem>,
 }
@@ -78,9 +80,42 @@ fn is_possible_amount(val: &str) -> bool {
 }
 
 fn standardize_date(val: &str) -> String {
-    let cleaned = val.trim();
+    let mut cleaned = val.trim().to_string();
     if cleaned.is_empty() {
         return String::new();
+    }
+
+    // Strip ordinal suffixes (1st, 2nd, 3rd, 4th...) so chrono can parse.
+    {
+        let chars: Vec<char> = cleaned.chars().collect();
+        let mut out = String::with_capacity(cleaned.len());
+        let mut i = 0;
+        while i < chars.len() {
+            out.push(chars[i]);
+            if chars[i].is_ascii_digit() && i + 2 < chars.len() {
+                let suf: String = chars[i + 1..i + 3].iter().collect();
+                if suf.eq_ignore_ascii_case("st")
+                    || suf.eq_ignore_ascii_case("nd")
+                    || suf.eq_ignore_ascii_case("rd")
+                    || suf.eq_ignore_ascii_case("th")
+                {
+                    i += 2;
+                }
+            }
+            i += 1;
+        }
+        cleaned = out;
+    }
+
+    cleaned = cleaned.replace(" of ", " ");
+
+    // Normalise the non-standard month abbreviation "Sept" / "Sept." to the
+    // chrono-recognised "Sep" form without corrupting the full "September".
+    let lower = cleaned.to_lowercase();
+    if lower.contains("sept") && !lower.contains("september") {
+        cleaned = cleaned.replace("Sept.", "Sep").replace("sept.", "sep");
+        cleaned = cleaned.replace("Sept", "Sep").replace("sept", "sep");
+        cleaned = cleaned.replace("SEPT", "SEP");
     }
 
     // Try a series of common datetime formats first
@@ -93,12 +128,17 @@ fn standardize_date(val: &str) -> String {
         "%d-%b-%Y %H:%M",
         "%d-%B-%Y %H:%M:%S",
         "%d-%B-%Y %H:%M",
+        "%d %b, %Y",
+        "%d %B, %Y",
+        "%b %d, %Y",
+        "%B %d, %Y",
+        "%d/%m/%Y,",
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
     ];
 
     for fmt in &datetime_formats {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(cleaned, fmt) {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&cleaned, fmt) {
             return dt.format("%d-%m-%Y").to_string();
         }
     }
@@ -125,10 +165,15 @@ fn standardize_date(val: &str) -> String {
         "%Y/%m/%d",  // 2025/04/30
         "%m/%d/%Y",  // 04/30/2025
         "%m/%d/%y",  // 04/30/25
+        "%d %b, %Y",
+        "%d %B, %Y",
+        "%d %b.",
+        "%d-%b.",
+        "%d/%m/%Y,",
     ];
 
     for fmt in &formats {
-        if let Ok(dt) = chrono::NaiveDate::parse_from_str(cleaned, fmt) {
+        if let Ok(dt) = chrono::NaiveDate::parse_from_str(&cleaned, fmt) {
             return dt.format("%d-%m-%Y").to_string();
         }
     }
@@ -169,10 +214,11 @@ fn decrypt_pdf_if_needed(
     temp_path: &Path,
     password: Option<&str>,
 ) -> Result<PathBuf, ExtractorError> {
-    let use_decrypted = match PdfDocument::open(temp_path) {
-        Ok(pdf) => pdf.pages().is_empty(),
-        Err(_) => true,
-    };
+    // Only fall back to lopdf when the primary extractor cannot open the file
+    // at all (e.g. encrypted or structurally damaged). A page with zero words
+    // (blank/scanned) is not by itself evidence that decryption is needed and
+    // forcing lopdf can surface spurious password errors.
+    let use_decrypted = PdfDocument::open(temp_path).is_err();
 
     if use_decrypted {
         let ts = SystemTime::now()
@@ -371,6 +417,101 @@ pub fn detect_column_guides<P: AsRef<Path>>(
     Ok(guides)
 }
 
+/// Infer column mappings for an unknown/auto statement by scanning the first
+/// page's (header) words and assigning each column a best-guess label.
+pub fn detect_column_mappings<P: AsRef<Path>>(
+    pdf_path: P,
+    password: Option<&str>,
+    guides: &[f64],
+) -> Result<Vec<String>, ExtractorError> {
+    let path_ref = pdf_path.as_ref();
+    let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
+    let _guard = if processed_path != path_ref {
+        Some(TempFileGuard::new(processed_path.clone()))
+    } else {
+        None
+    };
+
+    let pdf = PdfDocument::open(&processed_path)
+        .map_err(|e| ExtractorError::PdfOpenError(format!("{:?}", e)))?;
+    let pages = pdf.pages();
+    if pages.is_empty() {
+        // Fall back to generic labels matching the guide count.
+        let mut mappings = vec!["date".to_string()];
+        for idx in 1..=guides.len() {
+            mappings.push(format!("column_{}", idx));
+        }
+        return Ok(mappings);
+    }
+
+    let page = &pages[0];
+    let width = page.width;
+    let height = page.height;
+    let header_limit = height * 0.30;
+
+    let page_guides: Vec<f64> = guides.iter().map(|&g| g * width).collect();
+    let num_cols = page_guides.len() + 1;
+
+    let mut column_text = vec![String::new(); num_cols];
+    for w in page.extract_words() {
+        if w.top > header_limit {
+            continue;
+        }
+        let center = (w.x0 + w.x1) / 2.0;
+        let mut col = 0;
+        while col < page_guides.len() && center > page_guides[col] {
+            col += 1;
+        }
+        if !column_text[col].is_empty() {
+            column_text[col].push(' ');
+        }
+        column_text[col].push_str(&w.text);
+    }
+
+    let mut mappings = Vec::with_capacity(num_cols);
+    let mut used_date = false;
+    for (idx, text) in column_text.iter().enumerate() {
+        let t = text.to_lowercase();
+        let label = if t.contains("value date") || t.contains("value dt") {
+            "value_date".to_string()
+        } else if !used_date && (t.contains("date") || t.contains("dt") || t.contains("txn date")) {
+            used_date = true;
+            "date".to_string()
+        } else if t.contains("description")
+            || t.contains("narration")
+            || t.contains("particulars")
+            || t.contains("details")
+        {
+            "description".to_string()
+        } else if t.contains("cheque") || t.contains("chq") || t.contains("instrument") {
+            "chq_no".to_string()
+        } else if t.contains("debit") || t.contains("withdrawal") || t.contains("dr") {
+            "debit".to_string()
+        } else if t.contains("credit") || t.contains("deposit") || t.contains("cr") {
+            "credit".to_string()
+        } else if t.contains("balance") {
+            "balance".to_string()
+        } else if t.contains("reference") || t.contains("ref") || t.contains("txn") {
+            "reference".to_string()
+        } else if t.contains("amount") {
+            "amount".to_string()
+        } else if idx == 0 && !used_date {
+            used_date = true;
+            "date".to_string()
+        } else {
+            format!("column_{}", idx)
+        };
+        mappings.push(label);
+    }
+
+    // Ensure date is present somewhere; fall back to first column if none matched.
+    if !mappings.iter().any(|m| m == "date") && num_cols > 0 {
+        mappings[0] = "date".to_string();
+    }
+
+    Ok(mappings)
+}
+
 /// Auto-detect bank preset from a PDF file path by scanning its text content.
 pub fn detect_preset_from_file<P: AsRef<Path>>(
     pdf_path: P,
@@ -556,7 +697,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
         }
     })?;
 
-    let mut all_rows = Vec::new();
+    let mut all_rows: Vec<PageRow> = Vec::new();
     let pages = pdf.pages();
 
     // Parse the inclusive date-range bounds once up front instead of re-parsing
@@ -607,15 +748,32 @@ pub fn extract_from_file<P: AsRef<Path>>(
             let mut best_dist = f64::INFINITY;
             for (idx, r) in grouped_rows.iter().enumerate() {
                 let dist = (r.anchor_y - item.y).abs();
-                if dist <= config.y_tolerance && dist < best_dist {
+                let new_min = r.min_y.min(item.y);
+                let new_max = r.max_y.max(item.y);
+                // Keep each clustered row's vertical span inside the tolerance so
+                // words from a following line cannot be absorbed just because they
+                // happen to sit closer to this row's anchor than to their own.
+                if dist <= config.y_tolerance
+                    && (new_max - new_min) <= config.y_tolerance
+                    && dist < best_dist
+                {
                     best_dist = dist;
                     best_idx = Some(idx);
                 }
             }
             match best_idx {
-                Some(idx) => grouped_rows[idx].items.push(item),
+                Some(idx) => {
+                    let row = &mut grouped_rows[idx];
+                    row.items.push(item.clone());
+                    row.min_y = row.min_y.min(item.y);
+                    row.max_y = row.max_y.max(item.y);
+                    let total_y: f64 = row.items.iter().map(|it| it.y).sum();
+                    row.y = total_y / row.items.len() as f64;
+                }
                 None => grouped_rows.push(GroupedRow {
                     anchor_y: item.y,
+                    min_y: item.y,
+                    max_y: item.y,
                     y: item.y,
                     items: vec![item],
                 }),
@@ -636,12 +794,41 @@ pub fn extract_from_file<P: AsRef<Path>>(
         for (row_idx, r) in grouped_rows.into_iter().enumerate() {
             let mut cell_contents = vec![Vec::new(); num_cols];
             for item in r.items {
-                let center_x = item.x + item.width / 2.0;
-                let mut col_idx = 0;
-                while col_idx < page_guides.len() && center_x > page_guides[col_idx] {
-                    col_idx += 1;
+                // Prefer the column whose horizontal band overlaps the word
+                // box the most. Falling back to centre-point assignment can
+                // push wide words (or words straddling a guide) into the wrong
+                // column purely because their midpoint crossed the divider.
+                let mut bounds = Vec::with_capacity(page_guides.len() + 2);
+                bounds.push(0.0);
+                bounds.extend_from_slice(&page_guides);
+                bounds.push(width);
+
+                let x0 = item.x;
+                let x1 = item.x + item.width;
+                let mut best_col = 0usize;
+                let mut best_overlap = -1.0_f64;
+                for col in 0..num_cols {
+                    let lo = bounds[col].max(x0);
+                    let hi = bounds[col + 1].min(x1);
+                    let overlap = (hi - lo).max(0.0);
+                    if overlap > best_overlap {
+                        best_overlap = overlap;
+                        best_col = col;
+                    }
                 }
-                cell_contents[col_idx].push(item);
+
+                // If the word does not overlap any band (degenerate width),
+                // fall back to the traditional midpoint rule.
+                if best_overlap <= 0.0 {
+                    let center_x = item.x + item.width / 2.0;
+                    let mut col_idx = 0;
+                    while col_idx < page_guides.len() && center_x > page_guides[col_idx] {
+                        col_idx += 1;
+                    }
+                    best_col = col_idx;
+                }
+
+                cell_contents[best_col].push(item);
             }
 
             let mut cells = Vec::with_capacity(num_cols);
@@ -705,6 +892,15 @@ pub fn extract_from_file<P: AsRef<Path>>(
             }
         }
 
+        // Normalise cell whitespace for consistent downstream parsing/filtering.
+        for row in &mut page_rows {
+            for cell in &mut row.cells {
+                // Drop control characters and collapse all whitespace runs.
+                let cleaned: String = cell.chars().filter(|c| !c.is_control()).collect();
+                *cell = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+            }
+        }
+
         let desc_idx = config.col_mappings.iter().position(|m| m == "description");
         let date_idx = config.col_mappings.iter().position(|m| m == "date");
         let val_date_idx = config.col_mappings.iter().position(|m| m == "value_date");
@@ -712,6 +908,67 @@ pub fn extract_from_file<P: AsRef<Path>>(
         let debit_idx = config.col_mappings.iter().position(|m| m == "debit");
         let credit_idx = config.col_mappings.iter().position(|m| m == "credit");
         let balance_idx = config.col_mappings.iter().position(|m| m == "balance");
+
+        // Lightweight auto-detection of repeated table header rows.
+        let header_keywords = [
+            "date",
+            "description",
+            "particulars",
+            "narration",
+            "details",
+            "debit",
+            "credit",
+            "balance",
+            "amount",
+            "value",
+            "chq",
+            "cheque",
+            "reference",
+            "ref",
+            "transaction",
+            "sl",
+            "s no",
+            "sr",
+        ];
+        page_rows.retain(|row| {
+            let joined = row
+                .cells
+                .iter()
+                .map(|c| c.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let hits = header_keywords
+                .iter()
+                .filter(|kw| joined.contains(*kw))
+                .count();
+            let has_date = date_idx.is_some_and(|idx| {
+                row.cells
+                    .get(idx)
+                    .map(|c| is_possible_date(c))
+                    .unwrap_or(false)
+            });
+            let has_amount = [amount_idx, debit_idx, credit_idx]
+                .into_iter()
+                .flatten()
+                .any(|idx| {
+                    row.cells
+                        .get(idx)
+                        .map(|c| is_possible_amount(c))
+                        .unwrap_or(false)
+                });
+
+            // Auto-skip repeated footer/page-marker rows as well.
+            let is_footer_like = (joined.contains("page")
+                || joined.contains("continued")
+                || joined.contains("carried forward")
+                || joined.contains("brought forward")
+                || joined.contains("b/f")
+                || joined.contains("c/f"))
+                && !has_date
+                && !has_amount;
+
+            !(hits >= 3 && !has_date && !has_amount) && !is_footer_like
+        });
 
         // Standardize date formats using chrono NaiveDate parser
         for idx in [date_idx, val_date_idx].into_iter().flatten() {
@@ -755,6 +1012,53 @@ pub fn extract_from_file<P: AsRef<Path>>(
                 }
             }
             page_rows = merged;
+        }
+
+        // Carry continuation-only rows from the top of the current page onto the
+        // last transaction of the previous page (page boundaries can split a
+        // multi-line narration). This runs before skip/filtering so the carried
+        // rows are not discarded by `filter_only_date`.
+        if page_idx > 0 {
+            let cell_desc_of = |row: &PageRow| -> String {
+                desc_idx
+                    .and_then(|idx| row.cells.get(idx))
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            let is_row_continuation = |row: &PageRow| -> bool {
+                let cell_desc = cell_desc_of(row);
+                let is_date_empty =
+                    date_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_amount_empty =
+                    amount_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_debit_empty =
+                    debit_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_credit_empty =
+                    credit_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+                let is_balance_empty =
+                    balance_idx.is_none_or(|idx| row.cells.get(idx).is_none_or(|c| c.is_empty()));
+
+                is_date_empty
+                    && is_amount_empty
+                    && is_debit_empty
+                    && is_credit_empty
+                    && is_balance_empty
+                    && !cell_desc.is_empty()
+            };
+
+            while !page_rows.is_empty()
+                && is_row_continuation(&page_rows[0])
+                && !all_rows.is_empty()
+            {
+                let carried_desc = cell_desc_of(&page_rows[0]).to_string();
+                if let Some(d_idx) = desc_idx
+                    && let Some(last_row) = all_rows.last_mut()
+                    && let Some(last_desc) = last_row.cells.get_mut(d_idx)
+                {
+                    *last_desc = format!("{} {}", last_desc, carried_desc).trim().to_string();
+                }
+                page_rows.remove(0);
+            }
         }
 
         // Skip header rows on page 1
@@ -802,7 +1106,13 @@ pub fn extract_from_file<P: AsRef<Path>>(
                         keep = false;
                     }
                 } else {
-                    keep = false;
+                    // Let rows whose date cannot be interpreted survive the
+                    // range filter rather than being silently dropped. Such
+                    // rows are still subject to `filter_only_date` above.
+                    debug!(
+                        "Date in row could not be parsed against range filter, retaining row: {:?}",
+                        row.cells.get(d_idx)
+                    );
                 }
             }
 
@@ -847,6 +1157,80 @@ pub fn extract_from_file<P: AsRef<Path>>(
             };
             let category = classify_transaction(narrative);
             row.cells.push(category.to_string());
+        }
+    }
+
+    // Lightweight balance continuity audit: surfaces potential clustering or
+    // column-shift issues as warnings without changing extracted values.
+    if let (Some(b_idx), Some(d_idx), Some(c_idx)) = (
+        config.col_mappings.iter().position(|m| m == "balance"),
+        config.col_mappings.iter().position(|m| m == "debit"),
+        config.col_mappings.iter().position(|m| m == "credit"),
+    ) {
+        let mut previous_balance: Option<f64> = None;
+        for row in &all_rows {
+            let current = crate::exporter::parse_amount(
+                row.cells.get(b_idx).map(String::as_str).unwrap_or(""),
+            );
+            let debit = crate::exporter::parse_amount(
+                row.cells.get(d_idx).map(String::as_str).unwrap_or(""),
+            )
+            .unwrap_or(0.0);
+            let credit = crate::exporter::parse_amount(
+                row.cells.get(c_idx).map(String::as_str).unwrap_or(""),
+            )
+            .unwrap_or(0.0);
+
+            if let Some(current_balance) = current {
+                if let Some(prev) = previous_balance
+                    && (current_balance - prev - (credit - debit)).abs() > 0.015
+                {
+                    warn!(
+                        "Balance continuity mismatch on page {} ({}): expected {:.2}, found {:.2}",
+                        row.page,
+                        row.id,
+                        prev + credit - debit,
+                        current_balance
+                    );
+                }
+                previous_balance = Some(current_balance);
+            }
+        }
+    }
+
+    // Date-order and duplicate-row diagnostics (non-fatal).
+    if let Some(d_idx) = config.col_mappings.iter().position(|m| m == "date") {
+        let mut previous: Option<chrono::NaiveDate> = None;
+        for row in &all_rows {
+            if let Some(current) = row
+                .cells
+                .get(d_idx)
+                .and_then(|c| crate::config::parse_date(c.trim()))
+            {
+                if let Some(prev_date) = previous
+                    && current < prev_date
+                {
+                    warn!(
+                        "Transaction date out of sequence on page {} ({}): {} < {}",
+                        row.page, row.id, current, prev_date
+                    );
+                }
+                previous = Some(current);
+            }
+        }
+    }
+
+    {
+        use std::collections::HashSet;
+        let mut seen: HashSet<String> = HashSet::new();
+        for row in &all_rows {
+            let key = row.cells.join("|");
+            if !key.trim().is_empty() && !seen.insert(key.clone()) {
+                warn!(
+                    "Possible duplicate transaction row on page {}: {}",
+                    row.page, row.id
+                );
+            }
         }
     }
 

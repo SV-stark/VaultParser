@@ -138,12 +138,19 @@ pub fn parse_amount(val: &str) -> Option<f64> {
         clean
     };
 
-    // Filter out currency symbols, commas, and parenthetical markers into a single buffer
+    // Keep only numeric/separator/sign characters. This robustly removes any
+    // currency glyph, unit label (Rs, INR, Dr, Cr, ...) and thousands
+    // separators-agnostic noise; the keyword stripping below still handles the
+    // few alphabetic labels that may survive.
+    // Keep alphanumerics and the separators we understand. Letters are
+    // retained so that unit/currency labels (Rs., INR, Cr, Dr, ...) can be
+    // stripped by the keyword pass below; unknown currency glyphs are
+    // dropped. Commas and whitespace are dropped immediately.
     let mut filtered = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
-            '$' | '£' | '€' | '₹' | ',' => {}
-            _ => filtered.push(c),
+            '0'..='9' | 'A'..='Z' | 'a'..='z' | '.' | '-' | '(' | ')' => filtered.push(c),
+            _ => {}
         }
     }
 
@@ -185,6 +192,39 @@ pub fn parse_amount(val: &str) -> Option<f64> {
     } else if let Some(stripped) = inner.strip_prefix('-') {
         inner = stripped.trim();
         trailing_minus = true;
+    }
+
+    // Resolve Indian vs. European decimal conventions when both separators
+    // appear: the decimal separator is whichever occurs last.
+    let normalized_owned: String;
+    let inner = if inner.contains(',') && inner.contains('.') {
+        let comma_pos = inner.rfind(',').unwrap();
+        let dot_pos = inner.rfind('.').unwrap();
+        normalized_owned = if comma_pos > dot_pos {
+            inner.replace('.', "").replace(',', ".")
+        } else {
+            inner.replace(',', "")
+        };
+        normalized_owned.trim()
+    } else if inner.contains(',') {
+        // A single trailing comma with 1-2 digits is treated as a decimal
+        // separator; otherwise commas are thousands separators.
+        let last = inner.rfind(',').unwrap();
+        let frac_len = inner.len() - last - 1;
+        normalized_owned = if (1..=2).contains(&frac_len) {
+            inner.replace(',', ".")
+        } else {
+            inner.replace(',', "")
+        };
+        normalized_owned.trim()
+    } else {
+        inner
+    };
+
+    // Treat common zero-value spellings consistently.
+    let lower = inner.to_ascii_lowercase();
+    if lower == "nil" || lower == "n/a" || lower == "na" || lower == "-" {
+        return Some(0.0);
     }
 
     let num = inner.parse::<f64>().ok()?;
