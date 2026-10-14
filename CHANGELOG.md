@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-14
+
+### Added
+- Added dedicated `Ujjivan` (Ujjivan Small Finance Bank) preset, wired into CLI wizard, `FromStr`, preset listing, and bank-name auto-detection.
+- Added `detect_column_mappings()` to infer column semantics (date, value date, description, debit, credit, balance) for unknown statements.
+- Added automatic table-header and page-footer row detection during extraction.
+- Added non-fatal diagnostics: balance continuity mismatches, out-of-sequence dates, and possible duplicate rows.
+- Added support for `Sept`/`Sept.` month tokens, ordinal date suffixes (`1st`, `2nd`, ...), and extra date formats.
+
+### Fixed
+- Fixed `y_top_trim` removing the top half of every page for bank templates whose transaction tables start near the top of the page (major under-extraction fix).
+- Fixed date-range filtering silently dropping rows whose dates could not be parsed.
+- Fixed column assignment to use horizontal overlap with column bands instead of midpoint only.
+- Fixed PDF decryption fallback so blank/scanned documents no longer trigger unnecessary `lopdf` decryption.
+- Fixed cross-page transaction narration carryover for continuation-only rows.
+- Fixed amount parsing for Indian/European decimal conventions, trailing minus signs, and common zero spellings (`Nil`, `N/A`, `-`).
+- Fixed row clustering so clustered rows keep their vertical span within `y_tolerance`, preventing adjacent-line absorption.
+- Fixed CI: the RKS fixture-dependent test now skips when the PDF is absent, and CodeQL SARIF upload was upgraded to `github/codeql-action/upload-sarif@v4`.
+
+### Changed
+- Unknown-bank `auto` mode now uses header-text column mapping inference and date-first defaults.
+- Cell normalization removes control characters and collapses whitespace runs.
+- Updated `.gitignore` to ignore PDFs, XLSX, TSV, CSV, and Python cache artifacts.
+
 ## [0.3.9] - 2026-10-14
 
 ### Changed
