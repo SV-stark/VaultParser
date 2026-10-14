@@ -577,6 +577,8 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
         Ok(Some(crate::presets::BankPreset::Idfc))
     } else if full_text.contains("INDUSIND") {
         Ok(Some(crate::presets::BankPreset::Indusind))
+    } else if full_text.contains("UJJIVAN") {
+        Ok(Some(crate::presets::BankPreset::Ujjivan))
     } else {
         Ok(None)
     }

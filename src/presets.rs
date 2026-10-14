@@ -38,6 +38,8 @@ pub enum BankPreset {
     Indusind,
     /// Himachal Pradesh Gramin Bank statement template.
     Hpgb,
+    /// Ujjivan Small Finance Bank statement template.
+    Ujjivan,
 }
 
 impl std::fmt::Display for BankPreset {
@@ -67,6 +69,7 @@ impl BankPreset {
             Self::Idfc => "IDFC FIRST Bank",
             Self::Indusind => "IndusInd Bank",
             Self::Hpgb => "Himachal Pradesh Gramin Bank",
+            Self::Ujjivan => "Ujjivan Small Finance Bank",
         }
     }
 
@@ -295,6 +298,20 @@ impl BankPreset {
                 config.filter_only_date = true;
                 config.y_tolerance = 10.0;
             }
+            Self::Ujjivan => {
+                config.col_guides = vec![0.12, 0.25, 0.48, 0.63, 0.76, 0.88];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "value_date".to_string(),
+                    "description".to_string(),
+                    "reference".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 9.0;
+            }
         }
         config
     }
@@ -319,6 +336,7 @@ impl BankPreset {
             Self::Idfc => "idfc",
             Self::Indusind => "indusind",
             Self::Hpgb => "hpgb",
+            Self::Ujjivan => "ujjivan",
         }
     }
 
@@ -342,6 +360,7 @@ impl BankPreset {
             Self::Idfc,
             Self::Indusind,
             Self::Hpgb,
+            Self::Ujjivan,
         ]
     }
 
@@ -386,6 +405,7 @@ impl std::str::FromStr for BankPreset {
             "hpgb" | "himachal pradesh gramin bank" | "himachal pradesh gramin" | "hpgramin" => {
                 Ok(Self::Hpgb)
             }
+            "ujjivan" | "ujjivan small finance bank" | "ujjivan small finance" => Ok(Self::Ujjivan),
             _ => Err(crate::error::ExtractorError::InvalidConfig(format!(
                 "Unknown bank preset: '{}'",
                 s

@@ -408,7 +408,8 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
     println!("  15) IDFC FIRST Bank (idfc)");
     println!("  16) IndusInd Bank (indusind)");
     println!("  17) Himachal Pradesh Gramin Bank (hpgb)");
-    println!("  18) Custom JSON configuration file");
+    println!("  18) Ujjivan Small Finance Bank (ujjivan)");
+    println!("  19) Custom JSON configuration file");
 
     let mut preset = String::new();
     loop {
@@ -486,7 +487,7 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
                 preset = "hpgb".to_string();
                 break;
             }
-            "18" => {
+            "19" => {
                 let mut json_path = String::new();
                 loop {
                     print!("📂 Enter path to custom JSON preset file: ");
@@ -512,7 +513,7 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
                     preset = trimmed.to_string();
                     break;
                 }
-                println!("Error: Invalid option. Please choose 1 to 18.");
+                println!("Error: Invalid option. Please choose 1 to 19.");
             }
         }
     }
