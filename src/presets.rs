@@ -299,18 +299,19 @@ impl BankPreset {
                 config.y_tolerance = 10.0;
             }
             Self::Ujjivan => {
-                config.col_guides = vec![0.12, 0.25, 0.48, 0.63, 0.76, 0.88];
+                config.col_guides = vec![0.125, 0.279, 0.529, 0.669, 0.806];
                 config.col_mappings = vec![
                     "date".to_string(),
                     "value_date".to_string(),
                     "description".to_string(),
-                    "reference".to_string(),
                     "debit".to_string(),
                     "credit".to_string(),
                     "balance".to_string(),
                 ];
                 config.filter_only_date = true;
-                config.y_tolerance = 9.0;
+                config.y_tolerance = 8.0;
+                config.y_top_trim = 0.5;
+                config.y_bottom_trim = 1.0;
             }
         }
         config
