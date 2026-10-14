@@ -21,6 +21,11 @@ Thumbs.db
 # Logs
 *.log
 
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
 /rks_output.csv
 /RKS USER CHARGES bank.xlsx
 /RKS USER CHARGES bank.json
