@@ -1,0 +1,18 @@
+{
+  "col_guides": [0.125, 0.279, 0.529, 0.669, 0.806],
+  "col_mappings": ["date", "value_date", "description", "debit", "credit", "balance"],
+  "y_tolerance": 8.0,
+  "merge_multi_line": true,
+  "skip_header_rows": 0,
+  "skip_footer_rows": 0,
+  "filter_only_date": true,
+  "filter_only_amount": false,
+  "y_top_trim": 0.0,
+  "y_bottom_trim": 0.98,
+  "manual_edits": {},
+  "deleted_rows": {},
+  "password": null,
+  "categorize": false,
+  "from_date": null,
+  "to_date": null
+}

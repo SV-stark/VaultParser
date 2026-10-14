@@ -310,8 +310,8 @@ impl BankPreset {
                 ];
                 config.filter_only_date = true;
                 config.y_tolerance = 8.0;
-                config.y_top_trim = 0.5;
-                config.y_bottom_trim = 1.0;
+                config.y_top_trim = 0.0;
+                config.y_bottom_trim = 0.98;
             }
         }
         config
