@@ -28,7 +28,8 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
     *   YES Bank
     *   IDFC FIRST Bank
     *   IndusInd Bank
-*   **✨ Interactive Web UI**: Includes a web-based visual dashboard where you can:
+    *   Himachal Pradesh Gramin Bank (HPGB)
+    *   Auto-detect (`auto`) plus custom JSON preset files*   **✨ Interactive Web UI**: Includes a web-based visual dashboard where you can:
     *   Drag, double-click to add, or right-click to delete vertical column guides over the PDF canvas.
     *   Crop header/footer regions in real-time.
     *   Directly override cell values or delete rows with coordinates that persist across exports.
@@ -71,12 +72,11 @@ use vaultparser::{ExtractionConfig, BankPreset, extract_from_file};
 use vaultparser::exporter::export_to_csv;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Load HDFC preset column coordinates
-    let config = ExtractionConfig::builder()
-        .categorize(true)
-        .from_date(Some("2023-01-01".to_string()))
-        .to_date(Some("2023-03-31".to_string()))
-        .build()?;
+    // 1. Start from a bank preset, then override options
+    let mut config = vaultparser::BankPreset::Hdfc.config();
+    config.categorize = true;
+    config.from_date = Some("2023-01-01".to_string());
+    config.to_date = Some("2023-03-31".to_string());
 
     // 2. Natively extract tabular data from statement
     let table = extract_from_file("statement.pdf", &config)?;
@@ -163,9 +163,9 @@ cargo run --release --bin vpcli -- ./statements/ sbi -f tsv --categorize --outpu
    Add `vaultparser` to your project's `Cargo.toml`. To include the visual Web UI server and its async framework dependencies, enable the optional `web` feature:
     ```toml
      [dependencies]
-     vaultparser = "0.2.5"
+     vaultparser = "0.3.9"
      # Or with the optional web UI:
-     # vaultparser = { version = "0.3.8", features = ["web"] }
+     # vaultparser = { version = "0.3.9", features = ["web"] }
     ```
 2. **Define Configuration**: Use pre-configured bank presets or customize via the builder pattern (which returns a `Result` for validation since `v0.1.6`):
    ```rust
@@ -200,6 +200,19 @@ cargo run --release --bin vpcli -- ./statements/ sbi -f tsv --categorize --outpu
 
 ---
 
+## 🔧 Accuracy Tuning
+
+VaultParser is coordinate-based, so a few settings usually determine extraction quality:
+
+- **`y_tolerance`**: increase for statements with uneven baselines or mixed font sizes; decrease if nearby rows are being merged.
+- **`col_guides`**: align guides to the visual column boundaries. Overlap-based word assignment helps wide words, but bad guides still reduce accuracy.
+- **`y_top_trim` / `y_bottom_trim`**: crop running headers, footers, page numbers, and summary blocks.
+- **`skip_header_rows` / `skip_footer_rows`**: use when headers/footers repeat on every page.
+- **`merge_multi_line`**: keep enabled for transaction descriptions that span multiple PDF lines.
+- **`filter_only_date` / `filter_only_amount`**: remove non-transaction rows. Date/amount diagnostics in recent versions help catch clustering or date-format issues.
+
+Recent versions also carry cross-page narrations, normalize `Sept`/ordinal dates, handle Indian/European decimals, and warn on balance continuity, out-of-sequence dates, and possible duplicate rows.
+
 ## 🧪 Testing
 
 To run the built-in unit and integration test suite:
@@ -212,7 +225,7 @@ This runs coordinate/amount parsing tests, an extraction check against the sampl
 
 ## 🪵 Logging & Diagnostics
 
-The library utilizes the standard `tracing` crate for diagnostic logging. Both the Web UI and CLI binaries are pre-configured to output formatted logs to stdout.
+The library utilizes the standard `tracing` crate for diagnostic logging. Both the Web UI and CLI binaries are pre-configured to output formatted logs to **stderr**, keeping stdout reserved for exported payloads.
 
 You can control the log verbosity using the `RUST_LOG` environment variable:
 
