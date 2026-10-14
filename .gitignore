@@ -29,3 +29,7 @@ __pycache__/
 /rks_output.csv
 /RKS USER CHARGES bank.xlsx
 /RKS USER CHARGES bank.json
+
+# Local statement fixtures / generated artifacts
+shoghi*
+*.tsv
