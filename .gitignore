@@ -4,9 +4,15 @@
 # Development temp directory
 /temp
 
-# PDF files (ignore all PDFs in root and subdirectories)
+# PDF, Excel, TSV, and CSV artifacts
 *.pdf
 **/*.pdf
+*.xlsx
+**/*.xlsx
+*.tsv
+**/*.tsv
+*.csv
+**/*.csv
 
 # OS/System files
 .DS_Store
