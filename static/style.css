@@ -782,6 +782,27 @@ input:checked + .toggle-switch::after {
   font-weight: 600;
 }
 
+.stats-badge-success {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #10b981 !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+.stats-badge-warning {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #f59e0b !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+.row-discrepancy {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-left: 3px solid #ef4444 !important;
+}
+
+.row-discrepancy:hover {
+  background: rgba(239, 68, 68, 0.22) !important;
+}
+
 /* Privacy/Offline warning footer banner */
 .app-footer {
   margin-top: auto;

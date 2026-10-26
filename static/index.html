@@ -99,6 +99,17 @@
                 <option value="icici">🏦 ICICI Bank</option>
                 <option value="pnb">🏦 Punjab National Bank (PNB)</option>
                 <option value="kotak">🏦 Kotak Mahindra Bank</option>
+                <option value="axis">🏦 Axis Bank</option>
+                <option value="bob">🏦 Bank of Baroda</option>
+                <option value="yes">🏦 YES Bank</option>
+                <option value="idfc">🏦 IDFC FIRST Bank</option>
+                <option value="indusind">🏦 IndusInd Bank</option>
+                <option value="ujjivan">🏦 Ujjivan Small Finance Bank</option>
+                <option value="federal">🏦 Federal Bank</option>
+                <option value="cbi">🏦 Central Bank of India</option>
+                <option value="bandhan">🏦 Bandhan Bank</option>
+                <option value="rbl">🏦 RBL Bank</option>
+                <option value="psb">🏦 Punjab & Sind Bank</option>
                 <option value="custom">⚙️ Custom Layout</option>
               </select>
             </div>
@@ -224,18 +235,21 @@
             <!-- Parsed Output Data Preview Table card -->
             <div class="glass-card preview-card">
               <div class="preview-header">
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                   <h3 style="margin: 0; font-family: var(--heading); font-size: 1.1rem; font-weight: 600;">
                     Statement Preview (Current Page)
                   </h3>
                   <div id="stats-badge" class="stats-badge">0 Rows Found</div>
+                  <div id="audit-badge" class="stats-badge hidden" title="Running balance equation audit">✔ Reconciled</div>
                 </div>
                 
-                <div style="display: flex; gap: 0.75rem;">
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                  <input type="text" id="table-search-input" placeholder="🔍 Search rows..." style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.4rem 0.65rem; border-radius: 6px; font-size: 0.82rem; width: 150px; outline: none;" />
                   <button id="btn-copy-tsv" class="btn btn-secondary">📋 Copy TSV</button>
-                  <button id="btn-export-csv" class="btn btn-secondary">Export All to CSV</button>
-                  <button id="btn-export-tsv" class="btn btn-secondary">Export All to TSV</button>
-                  <button id="btn-export-xlsx" class="btn btn-primary">Export All to Excel (.xlsx)</button>
+                  <button id="btn-export-csv" class="btn btn-secondary">CSV</button>
+                  <button id="btn-export-tsv" class="btn btn-secondary">TSV</button>
+                  <button id="btn-export-qif" class="btn btn-secondary">QIF</button>
+                  <button id="btn-export-xlsx" class="btn btn-primary">Export Excel (.xlsx)</button>
                 </div>
               </div>
 

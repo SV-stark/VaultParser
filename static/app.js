@@ -90,6 +90,36 @@ const PRESETS = {
     guides: [0.12, 0.44, 0.56, 0.70, 0.84],
     mappings: ['date', 'description', 'chq_no', 'debit', 'credit', 'balance']
   },
+  ujjivan: {
+    name: '🏦 Ujjivan Small Finance Bank',
+    guides: [0.125, 0.279, 0.529, 0.669, 0.806],
+    mappings: ['date', 'value_date', 'description', 'debit', 'credit', 'balance']
+  },
+  federal: {
+    name: '🏦 Federal Bank',
+    guides: [0.12, 0.45, 0.58, 0.72, 0.85],
+    mappings: ['date', 'description', 'reference', 'debit', 'credit', 'balance']
+  },
+  cbi: {
+    name: '🏦 Central Bank of India',
+    guides: [0.10, 0.22, 0.50, 0.65, 0.78, 0.88],
+    mappings: ['date', 'value_date', 'description', 'chq_no', 'debit', 'credit', 'balance']
+  },
+  bandhan: {
+    name: '🏦 Bandhan Bank',
+    guides: [0.11, 0.42, 0.55, 0.70, 0.84],
+    mappings: ['date', 'description', 'reference', 'debit', 'credit', 'balance']
+  },
+  rbl: {
+    name: '🏦 RBL Bank',
+    guides: [0.11, 0.44, 0.58, 0.72, 0.86],
+    mappings: ['date', 'description', 'reference', 'debit', 'credit', 'balance']
+  },
+  psb: {
+    name: '🏦 Punjab & Sind Bank',
+    guides: [0.10, 0.22, 0.48, 0.62, 0.76, 0.88],
+    mappings: ['date', 'value_date', 'description', 'chq_no', 'debit', 'credit', 'balance']
+  },
   custom: {
     name: '⚙️ Custom Layout',
     guides: null,
@@ -175,9 +205,12 @@ const canvasWrapper = document.getElementById('canvas-wrapper');
 const interactiveOverlay = document.getElementById('interactive-overlay');
 
 const statsBadge = document.getElementById('stats-badge');
+const auditBadge = document.getElementById('audit-badge');
+const tableSearchInput = document.getElementById('table-search-input');
 const btnCopyTsv = document.getElementById('btn-copy-tsv');
 const btnExportCsv = document.getElementById('btn-export-csv');
 const btnExportTsv = document.getElementById('btn-export-tsv');
+const btnExportQif = document.getElementById('btn-export-qif');
 const btnExportXlsx = document.getElementById('btn-export-xlsx');
 const previewTable = document.getElementById('preview-table');
 const tableHeadersRow = document.getElementById('table-headers-row');
@@ -348,7 +381,28 @@ function bindEvents() {
   }
   btnExportCsv.addEventListener('click', () => handleBulkExport('csv'));
   if (btnExportTsv) btnExportTsv.addEventListener('click', () => handleBulkExport('tsv'));
+  if (btnExportQif) btnExportQif.addEventListener('click', () => handleBulkExport('qif'));
   btnExportXlsx.addEventListener('click', () => handleBulkExport('xlsx'));
+
+  if (tableSearchInput) {
+    tableSearchInput.addEventListener('input', (e) => {
+      filterTableRows(e.target.value);
+    });
+  }
+}
+
+// Filters preview table rows by query string
+function filterTableRows(query) {
+  const q = (query || '').toLowerCase().trim();
+  const rows = tableBody.querySelectorAll('tr');
+  rows.forEach(tr => {
+    if (!q) {
+      tr.style.display = '';
+    } else {
+      const text = tr.textContent.toLowerCase();
+      tr.style.display = text.includes(q) ? '' : 'none';
+    }
+  });
 }
 
 // Reset application to raw upload state
@@ -971,6 +1025,35 @@ function renderPreviewTable(data) {
   const currentPageRows = pageRows.filter(r => r.page === currentPage);
   statsBadge.textContent = `${pageRows.length} Rows (${currentPageRows.length} on page ${currentPage})`;
 
+  // Audit / Running Balance Reconciliation
+  const rec = data.reconciliation;
+  const discrepancyMap = new Map();
+  if (auditBadge) {
+    if (rec && rec.total_evaluated > 0) {
+      auditBadge.classList.remove('hidden');
+      if (rec.is_reconciled) {
+        auditBadge.className = 'stats-badge stats-badge-success';
+        auditBadge.textContent = `✔ Balance Reconciled (${rec.matching_rows}/${rec.total_evaluated})`;
+        auditBadge.title = 'Running balance equation verified across all evaluated transactions';
+      } else {
+        auditBadge.className = 'stats-badge stats-badge-warning';
+        auditBadge.textContent = `⚠️ ${rec.discrepancies.length} Balance Mismatch${rec.discrepancies.length > 1 ? 'es' : ''}`;
+        auditBadge.title = 'Click to jump to the first mismatched row';
+      }
+      (rec.discrepancies || []).forEach(d => {
+        discrepancyMap.set(d.row_id, d);
+      });
+      auditBadge.onclick = () => {
+        const firstMismatch = tableBody.querySelector('.row-discrepancy');
+        if (firstMismatch) {
+          firstMismatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      };
+    } else {
+      auditBadge.classList.add('hidden');
+    }
+  }
+
   if (pageRows.length === 0) {
     tableEmptyMessage.classList.remove('hidden');
     previewTable.classList.add('hidden');
@@ -982,7 +1065,13 @@ function renderPreviewTable(data) {
   
   pageRows.forEach(row => {
     const tr = document.createElement('tr');
+    tr.dataset.rowId = row.id || row.y;
     if (row.page === currentPage) tr.classList.add('current-page-row');
+    if (discrepancyMap.has(row.id)) {
+      const disc = discrepancyMap.get(row.id);
+      tr.classList.add('row-discrepancy');
+      tr.title = `⚠️ Balance Discrepancy:\nExpected: ${disc.expected_balance.toFixed(2)}\nReported: ${disc.reported_balance.toFixed(2)}\nDifference: ${disc.difference > 0 ? '+' : ''}${disc.difference.toFixed(2)}`;
+    }
     
     // Page number badge cell
     const tdPage = document.createElement('td');
@@ -1040,6 +1129,10 @@ function renderPreviewTable(data) {
     
     tableBody.appendChild(tr);
   });
+
+  if (tableSearchInput && tableSearchInput.value) {
+    filterTableRows(tableSearchInput.value);
+  }
 }
 
 // Save cell edits locally and trigger conversions updates
@@ -1106,6 +1199,9 @@ async function handleBulkExport(format) {
     } else if (format === 'tsv') {
       ext = 'tsv';
       mime = 'text/tab-separated-values';
+    } else if (format === 'qif') {
+      ext = 'qif';
+      mime = 'application/x-qif';
     }
       
     const downloadBlob = new Blob([blob], { type: mime });

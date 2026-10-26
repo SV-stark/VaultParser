@@ -21,6 +21,8 @@ pub enum ExtractorError {
     InvalidConfig(String),
     /// Password required or incorrect password supplied for PDF decryption.
     PasswordError(String),
+    /// The PDF appears to be a scanned image or contains no extractable digital text.
+    ScannedPdf(String),
 }
 
 impl std::error::Error for ExtractorError {
@@ -46,6 +48,7 @@ impl fmt::Display for ExtractorError {
             Self::DecryptError(e) => write!(f, "PDF decryption error: {}", e),
             Self::InvalidConfig(e) => write!(f, "Invalid configuration: {}", e),
             Self::PasswordError(e) => write!(f, "Password error: {}", e),
+            Self::ScannedPdf(e) => write!(f, "Scanned PDF detected: {}", e),
         }
     }
 }

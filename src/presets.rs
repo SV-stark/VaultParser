@@ -40,6 +40,16 @@ pub enum BankPreset {
     Hpgb,
     /// Ujjivan Small Finance Bank statement template.
     Ujjivan,
+    /// Federal Bank statement template.
+    Federal,
+    /// Central Bank of India (CBI) statement template.
+    Cbi,
+    /// Bandhan Bank statement template.
+    Bandhan,
+    /// RBL Bank statement template.
+    Rbl,
+    /// Punjab & Sind Bank statement template.
+    Psb,
 }
 
 impl std::fmt::Display for BankPreset {
@@ -70,6 +80,11 @@ impl BankPreset {
             Self::Indusind => "IndusInd Bank",
             Self::Hpgb => "Himachal Pradesh Gramin Bank",
             Self::Ujjivan => "Ujjivan Small Finance Bank",
+            Self::Federal => "Federal Bank",
+            Self::Cbi => "Central Bank of India",
+            Self::Bandhan => "Bandhan Bank",
+            Self::Rbl => "RBL Bank",
+            Self::Psb => "Punjab & Sind Bank",
         }
     }
 
@@ -313,6 +328,73 @@ impl BankPreset {
                 config.y_top_trim = 0.0;
                 config.y_bottom_trim = 0.98;
             }
+            Self::Federal => {
+                config.col_guides = vec![0.12, 0.45, 0.58, 0.72, 0.85];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "reference".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
+            Self::Cbi => {
+                config.col_guides = vec![0.10, 0.22, 0.50, 0.65, 0.78, 0.88];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "value_date".to_string(),
+                    "description".to_string(),
+                    "chq_no".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 14.0;
+            }
+            Self::Bandhan => {
+                config.col_guides = vec![0.11, 0.42, 0.55, 0.70, 0.84];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "reference".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
+            Self::Rbl => {
+                config.col_guides = vec![0.11, 0.44, 0.58, 0.72, 0.86];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "description".to_string(),
+                    "reference".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 12.0;
+            }
+            Self::Psb => {
+                config.col_guides = vec![0.10, 0.22, 0.48, 0.62, 0.76, 0.88];
+                config.col_mappings = vec![
+                    "date".to_string(),
+                    "value_date".to_string(),
+                    "description".to_string(),
+                    "chq_no".to_string(),
+                    "debit".to_string(),
+                    "credit".to_string(),
+                    "balance".to_string(),
+                ];
+                config.filter_only_date = true;
+                config.y_tolerance = 14.0;
+            }
         }
         config
     }
@@ -338,6 +420,11 @@ impl BankPreset {
             Self::Indusind => "indusind",
             Self::Hpgb => "hpgb",
             Self::Ujjivan => "ujjivan",
+            Self::Federal => "federal",
+            Self::Cbi => "cbi",
+            Self::Bandhan => "bandhan",
+            Self::Rbl => "rbl",
+            Self::Psb => "psb",
         }
     }
 
@@ -362,6 +449,11 @@ impl BankPreset {
             Self::Indusind,
             Self::Hpgb,
             Self::Ujjivan,
+            Self::Federal,
+            Self::Cbi,
+            Self::Bandhan,
+            Self::Rbl,
+            Self::Psb,
         ]
     }
 
@@ -407,6 +499,11 @@ impl std::str::FromStr for BankPreset {
                 Ok(Self::Hpgb)
             }
             "ujjivan" | "ujjivan small finance bank" | "ujjivan small finance" => Ok(Self::Ujjivan),
+            "federal" | "federal bank" => Ok(Self::Federal),
+            "cbi" | "central bank" | "central bank of india" => Ok(Self::Cbi),
+            "bandhan" | "bandhan bank" => Ok(Self::Bandhan),
+            "rbl" | "rbl bank" | "ratnakar" => Ok(Self::Rbl),
+            "psb" | "punjab & sind" | "punjab and sind" | "punjab and sind bank" => Ok(Self::Psb),
             _ => Err(crate::error::ExtractorError::InvalidConfig(format!(
                 "Unknown bank preset: '{}'",
                 s

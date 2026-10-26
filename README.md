@@ -29,12 +29,20 @@ It is designed to be **100% Python-free**, utilizing native Rust parsers and coo
     *   IDFC FIRST Bank
     *   IndusInd Bank
     *   Himachal Pradesh Gramin Bank (HPGB)
-    *   Auto-detect (`auto`) plus custom JSON preset files*   **✨ Interactive Web UI**: Includes a web-based visual dashboard where you can:
+    *   Ujjivan Small Finance Bank
+    *   Federal Bank
+    *   Central Bank of India (CBI)
+    *   Bandhan Bank
+    *   RBL Bank
+    *   Punjab & Sind Bank (PSB)
+    *   Auto-detect (`auto`) plus custom JSON preset files
+*   **⚖️ Running Balance Reconciliation Validator**: Automatically verifies the ledger equation ($\text{Balance}_n = \text{Balance}_{n-1} - \text{Debit}_n + \text{Credit}_n$) across consecutive rows, flagging missed transactions or wrapped text errors in both Web UI and CLI.
+*   **✨ Interactive Web UI**: Includes a web-based visual dashboard where you can:
     *   Drag, double-click to add, or right-click to delete vertical column guides over the PDF canvas.
     *   Crop header/footer regions in real-time.
     *   Directly override cell values or delete rows with coordinates that persist across exports.
     *   Instant **Copy TSV to Clipboard** for pasting directly into Excel / Google Sheets.
-*   **💾 Multi-format Exporters**: Bulk compile transaction history to `.xlsx` (Excel), `.csv`, `.tsv`, or `.json`.
+*   **💾 Multi-format Exporters**: Bulk compile transaction history to `.xlsx` (Excel), `.csv`, `.tsv`, `.json`, or `.qif` (Quicken Interchange Format).
 *   **📊 Automated Totals Row**: Automatically calculates total debit, credit, and row count summaries in exported ledgers.
 *   **🏷️ Transaction Categorization Engine**: Enable with `--categorize / -c` to auto-tag transactions into categories (`UPI & Transfers`, `Salary & Income`, `ATM & Cash`, etc.). Unrecognized transactions are assigned to `Suspense`.
 *   **📅 Date Range Filtering**: Filter transaction statements by date range using `--from <YYYY-MM-DD>` and `--to <YYYY-MM-DD>`.

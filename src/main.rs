@@ -10,8 +10,10 @@ use std::fs;
 use tower_http::services::ServeDir;
 
 use vaultparser::{
-    BankPreset, ExtractionConfig, detect_column_guides, detect_preset_from_file,
-    exporter::{export_to_csv, export_to_tsv, export_to_xlsx},
+    BankPreset, ExtractionConfig, detect_column_guides_from_bytes, detect_preset_from_bytes,
+    exporter::{
+        export_to_csv, export_to_qif, export_to_tsv, export_to_xlsx, reconcile_running_balance,
+    },
     extract_from_bytes,
 };
 
@@ -80,24 +82,9 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
         return Err((StatusCode::BAD_REQUEST, "No file uploaded".to_string()));
     }
 
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let temp_path =
-        std::env::temp_dir().join(format!("vp_detect_{}_{}.pdf", std::process::id(), ts));
     let (preset_key, preset_name, guides) =
         tokio::task::spawn_blocking(move || -> Result<_, String> {
-            struct TempFileGuard(std::path::PathBuf);
-            impl Drop for TempFileGuard {
-                fn drop(&mut self) {
-                    let _ = fs::remove_file(&self.0);
-                }
-            }
-            fs::write(&temp_path, &file_bytes).map_err(|e| e.to_string())?;
-            let _guard = TempFileGuard(temp_path.clone());
-
-            let preset_opt = detect_preset_from_file(&temp_path, password.as_deref())
+            let preset_opt = detect_preset_from_bytes(&file_bytes, password.as_deref())
                 .ok()
                 .flatten();
             let (p_key, p_name) = match preset_opt {
@@ -107,9 +94,13 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
                 ),
                 None => (None, None),
             };
-            let guides =
-                detect_column_guides(&temp_path, password.as_deref(), y_top_trim, y_bottom_trim)
-                    .unwrap_or_default();
+            let guides = detect_column_guides_from_bytes(
+                &file_bytes,
+                password.as_deref(),
+                y_top_trim,
+                y_bottom_trim,
+            )
+            .unwrap_or_default();
             Ok((p_key, p_name, guides))
         })
         .await
@@ -347,6 +338,10 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
             let tsv_data =
                 export_to_tsv(&extracted_table).map_err(|e| format!("TSV export failed: {}", e))?;
             Ok((extracted_table, Some(("tsv", tsv_data))))
+        } else if format_type_clone == "qif" {
+            let qif_data =
+                export_to_qif(&extracted_table).map_err(|e| format!("QIF export failed: {}", e))?;
+            Ok((extracted_table, Some(("qif", qif_data))))
         } else {
             Ok((extracted_table, None))
         }
@@ -396,16 +391,59 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
                     ),
                 );
             }
+            "qif" => {
+                res_headers.insert(
+                    header::CONTENT_TYPE,
+                    axum::http::HeaderValue::from_static("application/x-qif"),
+                );
+                res_headers.insert(
+                    header::CONTENT_DISPOSITION,
+                    axum::http::HeaderValue::from_static(
+                        "attachment; filename=converted_statement.qif",
+                    ),
+                );
+            }
             _ => {}
         }
         Ok((StatusCode::OK, res_headers, bytes).into_response())
     } else {
+        let reconciliation = reconcile_running_balance(&extracted_table);
         let json_response = serde_json::json!({
             "headers": extracted_table.headers,
             "active_indices": extracted_table.active_indices,
-            "rows": extracted_table.rows
+            "rows": extracted_table.rows,
+            "reconciliation": reconciliation
         });
         Ok(Json(json_response).into_response())
+    }
+}
+
+/// Cleans up any orphaned temporary PDF files left from previous unexpected terminations.
+fn cleanup_stale_temp_files() {
+    if let Ok(entries) = fs::read_dir("temp") {
+        for entry in entries.flatten() {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+
+    let temp_dir = std::env::temp_dir();
+    if let Ok(entries) = fs::read_dir(temp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("vp_") && name.ends_with(".pdf") {
+                    if let Ok(meta) = entry.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            if let Ok(elapsed) = modified.elapsed() {
+                                if elapsed.as_secs() > 1800 {
+                                    let _ = fs::remove_file(path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -420,12 +458,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .init();
 
-    // Clean up temp directory on startup if it exists
-    if let Ok(entries) = fs::read_dir("temp") {
-        for entry in entries.flatten() {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
+    // Clean up temporary files on startup
+    cleanup_stale_temp_files();
 
     let app = Router::new()
         .route("/api/convert", post(convert_pdf))

@@ -1,7 +1,10 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
-use vaultparser::exporter::{export_to_csv, export_to_json, export_to_tsv, export_to_xlsx};
+use vaultparser::exporter::{
+    export_to_csv, export_to_json, export_to_qif, export_to_tsv, export_to_xlsx,
+    reconcile_running_balance,
+};
 use vaultparser::{
     BankPreset, ExtractedTable, ExtractionConfig, detect_column_guides, detect_column_mappings,
     detect_preset_from_file, extract_from_file,
@@ -27,7 +30,7 @@ struct Args {
     #[arg(short, long)]
     password: Option<String>,
 
-    /// Output format (csv, tsv, xlsx, json). Overrides extension inference.
+    /// Output format (csv, tsv, xlsx, json, qif). Overrides extension inference.
     #[arg(short, long)]
     format: Option<String>,
 
@@ -111,6 +114,7 @@ fn get_format_bytes(
         "xlsx" | "excel" => Ok((export_to_xlsx(table)?, "xlsx")),
         "json" => Ok((export_to_json(table)?, "json")),
         "tsv" => Ok((export_to_tsv(table)?, "tsv")),
+        "qif" => Ok((export_to_qif(table)?, "qif")),
         _ => Ok((export_to_csv(table)?, "csv")),
     }
 }
@@ -123,11 +127,127 @@ fn infer_format_from_str(s: &str) -> Option<&'static str> {
         Some("json")
     } else if lower.ends_with(".tsv") {
         Some("tsv")
+    } else if lower.ends_with(".qif") {
+        Some("qif")
     } else if lower.ends_with(".csv") {
         Some("csv")
     } else {
         None
     }
+}
+
+fn print_statement_summary(table: &ExtractedTable) {
+    let mut total_debit = 0.0;
+    let mut total_credit = 0.0;
+    let mut debit_count = 0;
+    let mut credit_count = 0;
+
+    let mut debit_col: Option<usize> = None;
+    let mut credit_col: Option<usize> = None;
+    let mut date_col: Option<usize> = None;
+
+    for (col_idx, _) in table.active_indices.iter().enumerate() {
+        let h = table
+            .headers
+            .get(col_idx)
+            .map(|s| s.to_uppercase())
+            .unwrap_or_default();
+        if (h.contains("WITHDRAWAL") || h.contains("DEBIT") || h.contains("DR"))
+            && !h.contains("BALANCE")
+            && debit_col.is_none()
+        {
+            debit_col = Some(col_idx);
+        } else if (h.contains("DEPOSIT") || h.contains("CREDIT") || h.contains("CR"))
+            && !h.contains("BALANCE")
+            && credit_col.is_none()
+        {
+            credit_col = Some(col_idx);
+        } else if h.contains("DATE") && date_col.is_none() {
+            date_col = Some(col_idx);
+        }
+    }
+
+    for r in &table.rows {
+        if let Some(d_col) = debit_col.and_then(|c| table.active_indices.get(c)) {
+            if let Some(val) = r
+                .cells
+                .get(*d_col)
+                .and_then(|s| vaultparser::exporter::parse_amount(s))
+            {
+                total_debit += val.abs();
+                debit_count += 1;
+            }
+        }
+        if let Some(c_col) = credit_col.and_then(|c| table.active_indices.get(c)) {
+            if let Some(val) = r
+                .cells
+                .get(*c_col)
+                .and_then(|s| vaultparser::exporter::parse_amount(s))
+            {
+                total_credit += val.abs();
+                credit_count += 1;
+            }
+        }
+    }
+
+    let first_date = date_col
+        .and_then(|c| table.active_indices.get(c))
+        .and_then(|&idx| table.rows.first()?.cells.get(idx))
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
+    let last_date = date_col
+        .and_then(|c| table.active_indices.get(c))
+        .and_then(|&idx| table.rows.last()?.cells.get(idx))
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
+    eprintln!("\n📊 ─── Statement Summary ───────────────────────────────");
+    eprintln!("  Transactions : {} rows", table.rows.len());
+    if let (Some(start), Some(end)) = (first_date, last_date) {
+        eprintln!("  Date Range   : {} → {}", start, end);
+    }
+    if debit_count > 0 {
+        eprintln!(
+            "  Total Debits : ₹ {:.2} ({} transactions)",
+            total_debit, debit_count
+        );
+    }
+    if credit_count > 0 {
+        eprintln!(
+            "  Total Credits: ₹ {:.2} ({} transactions)",
+            total_credit, credit_count
+        );
+    }
+
+    let rec = reconcile_running_balance(table);
+    if rec.total_evaluated > 0 {
+        if rec.is_reconciled {
+            eprintln!(
+                "  Balance Audit: ✔ 100% matched across {} evaluated rows",
+                rec.total_evaluated
+            );
+        } else {
+            eprintln!(
+                "  Balance Audit: ⚠️ {} mismatch(es) detected across {} rows!",
+                rec.discrepancies.len(),
+                rec.total_evaluated
+            );
+            for d in rec.discrepancies.iter().take(3) {
+                eprintln!(
+                    "    • Row {}: expected {:.2}, reported {:.2} (diff: {:+.2})",
+                    d.row_index + 1,
+                    d.expected_balance,
+                    d.reported_balance,
+                    d.difference
+                );
+            }
+            if rec.discrepancies.len() > 3 {
+                eprintln!("    • ... and {} more", rec.discrepancies.len() - 3);
+            }
+        }
+    }
+    eprintln!("────────────────────────────────────────────────────────\n");
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -263,6 +383,7 @@ fn run_extraction_process(
         };
         std::fs::write(&final_path, &bytes)?;
         println!("Saved {} output to: {}", ext.to_uppercase(), final_path);
+        print_statement_summary(&table);
     } else {
         let (bytes, ext) = get_format_bytes(&table, target_format)?;
         if ext == "xlsx" {
@@ -277,10 +398,12 @@ fn run_extraction_process(
                 bytes.len(),
                 ext.to_uppercase()
             );
+            print_statement_summary(&table);
         } else {
             let text = String::from_utf8(bytes)?;
             println!("\n--- Extracted Transactions ({}) ---", ext.to_uppercase());
             println!("{}", text);
+            print_statement_summary(&table);
         }
     }
 
@@ -354,6 +477,7 @@ fn run_batch_extraction(
                     table.rows.len(),
                     dest_path.display()
                 );
+                print_statement_summary(&table);
             }
             Err(e) => {
                 eprintln!("  ❌ Failed to process '{}': {}", pdf.display(), e);

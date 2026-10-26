@@ -579,6 +579,19 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
         Ok(Some(crate::presets::BankPreset::Indusind))
     } else if full_text.contains("UJJIVAN") {
         Ok(Some(crate::presets::BankPreset::Ujjivan))
+    } else if full_text.contains("FEDERAL BANK") {
+        Ok(Some(crate::presets::BankPreset::Federal))
+    } else if full_text.contains("CENTRAL BANK OF INDIA") || full_text.contains("CBI ") {
+        Ok(Some(crate::presets::BankPreset::Cbi))
+    } else if full_text.contains("BANDHAN BANK") || full_text.contains("BANDHAN") {
+        Ok(Some(crate::presets::BankPreset::Bandhan))
+    } else if full_text.contains("RBL BANK") || full_text.contains("RATNAKAR") {
+        Ok(Some(crate::presets::BankPreset::Rbl))
+    } else if full_text.contains("PUNJAB & SIND")
+        || full_text.contains("PUNJAB AND SIND")
+        || full_text.contains("PSB ")
+    {
+        Ok(Some(crate::presets::BankPreset::Psb))
     } else {
         Ok(None)
     }
@@ -701,6 +714,14 @@ pub fn extract_from_file<P: AsRef<Path>>(
 
     let mut all_rows: Vec<PageRow> = Vec::new();
     let pages = pdf.pages();
+
+    let total_words: usize = pages.iter().map(|p| p.extract_words().len()).sum();
+    if !pages.is_empty() && total_words == 0 {
+        return Err(ExtractorError::ScannedPdf(
+            "No extractable text found in this PDF. The document appears to be a scanned image or photograph."
+                .to_string(),
+        ));
+    }
 
     // Parse the inclusive date-range bounds once up front instead of re-parsing
     // them for every row on every page.
@@ -1267,6 +1288,63 @@ pub fn extract_from_bytes(
     let _guard = TempFileGuard::new(temp_path.clone());
 
     extract_from_file(&temp_path, config)
+}
+
+/// Automatically detect column guides directly from PDF bytes
+pub fn detect_column_guides_from_bytes(
+    pdf_bytes: &[u8],
+    password: Option<&str>,
+    y_top_trim: f64,
+    y_bottom_trim: f64,
+) -> Result<Vec<f64>, ExtractorError> {
+    let ts = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_name = format!("vp_guides_{}_{}.pdf", std::process::id(), ts);
+    let temp_path = std::env::temp_dir().join(temp_name);
+
+    fs::write(&temp_path, pdf_bytes)?;
+    let _guard = TempFileGuard::new(temp_path.clone());
+
+    detect_column_guides(&temp_path, password, y_top_trim, y_bottom_trim)
+}
+
+/// Automatically detect bank preset directly from PDF bytes
+pub fn detect_preset_from_bytes(
+    pdf_bytes: &[u8],
+    password: Option<&str>,
+) -> Result<Option<crate::presets::BankPreset>, ExtractorError> {
+    let ts = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_name = format!("vp_preset_{}_{}.pdf", std::process::id(), ts);
+    let temp_path = std::env::temp_dir().join(temp_name);
+
+    fs::write(&temp_path, pdf_bytes)?;
+    let _guard = TempFileGuard::new(temp_path.clone());
+
+    detect_preset_from_file(&temp_path, password)
+}
+
+/// Automatically infer column mappings directly from PDF bytes
+pub fn detect_column_mappings_from_bytes(
+    pdf_bytes: &[u8],
+    password: Option<&str>,
+    guides: &[f64],
+) -> Result<Vec<String>, ExtractorError> {
+    let ts = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_name = format!("vp_maps_{}_{}.pdf", std::process::id(), ts);
+    let temp_path = std::env::temp_dir().join(temp_name);
+
+    fs::write(&temp_path, pdf_bytes)?;
+    let _guard = TempFileGuard::new(temp_path.clone());
+
+    detect_column_mappings(&temp_path, password, guides)
 }
 
 #[cfg(test)]

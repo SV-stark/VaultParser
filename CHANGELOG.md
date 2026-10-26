@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-26
+
+### Added
+- **Running Balance Reconciliation Engine**: Automated audit check validating the ledger formula ($\text{Balance}_n = \text{Balance}_{n-1} - \text{Debit}_n + \text{Credit}_n$) across consecutive transaction rows with auto-detection of chronological vs reverse-chronological ordering.
+- **5 New Indian Bank Presets**: Out-of-the-box column boundaries and mappings for Federal Bank (`federal`), Central Bank of India (`cbi`), Bandhan Bank (`bandhan`), RBL Bank (`rbl`), and Punjab & Sind Bank (`psb`).
+- **QIF (Quicken Interchange Format) Exporter**: Direct `.qif` export support across library, CLI, and Web UI for importing into personal finance software (GnuCash, Firefly III, YNAB).
+- **In-Memory Byte Layout Extraction**: Added `detect_column_guides_from_bytes`, `detect_preset_from_bytes`, and `detect_column_mappings_from_bytes` for zero-disk-I/O in-memory processing.
+- **Scanned PDF Detection**: Early detection and error reporting (`ExtractorError::ScannedPdf`) when a multi-page PDF contains no selectable text characters.
+- **Real-Time Web UI Search & Audit Badging**: Live text search filter across preview rows and visual balance reconciliation audit badges with smooth scroll-to-mismatch navigation.
+- **CLI Statement Summary Report**: Summary box output in `vpcli` displaying date range, total debit/credit sums, transaction counts, and balance audit statistics.
+- **Stale Temp File Cleanup**: Automated cleanup of orphaned temporary PDF files on server startup.
+
+### Changed
+- Aligned dependency versions in `Cargo.lock` with MSRV requirements.
+- Formatted entire repository with `cargo fmt`.
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
