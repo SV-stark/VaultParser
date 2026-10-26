@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-10-26
+
+### Fixed
+- Declared `rust-version = "1.88"` in `Cargo.toml` so MSRV-aware dependency resolution skips newer `aes`/`pdfsink-rs` releases that require Rust 1.89+/1.97+. This allows `cargo install`/`cargo binstall` (without `--locked`) to resolve to the MSRV-compatible dependency set already recorded in `Cargo.lock`.
+
 ## [0.5.0] - 2026-10-26
 
 ### Added

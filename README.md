@@ -171,7 +171,7 @@ cargo run --release --bin vpcli -- ./statements/ sbi -f tsv --categorize --outpu
    Add `vaultparser` to your project's `Cargo.toml`. To include the visual Web UI server and its async framework dependencies, enable the optional `web` feature:
     ```toml
      [dependencies]
-     vaultparser = "0.4.0"
+     vaultparser = "0.5.1"
      # Or with the optional web UI:
      # vaultparser = { version = "0.4.0", features = ["web"] }
     ```

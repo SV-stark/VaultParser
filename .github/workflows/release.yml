@@ -52,7 +52,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}"
-          $dir_name = "vaultparser-$version-${{ matrix.asset_suffix }}"
+          $dir_name = "vaultparser-$version-${{ matrix.target }}"
           New-Item -ItemType Directory -Path $dir_name
           Copy-Item "target/${{ matrix.target }}/release/vaultparser.exe" -Destination "$dir_name/"
           Copy-Item "target/${{ matrix.target }}/release/vpcli.exe" -Destination "$dir_name/"
@@ -65,7 +65,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           VERSION="${{ github.ref_name }}"
-          DIR_NAME="vaultparser-$VERSION-${{ matrix.asset_suffix }}"
+          DIR_NAME="vaultparser-$VERSION-${{ matrix.target }}"
           mkdir -p "$DIR_NAME"
           cp "target/${{ matrix.target }}/release/vaultparser" "$DIR_NAME/"
           cp "target/${{ matrix.target }}/release/vpcli" "$DIR_NAME/"
@@ -78,6 +78,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            vaultparser-${{ github.ref_name }}-${{ matrix.asset_suffix }}.${{ matrix.archive_format }}
+            vaultparser-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_format }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
