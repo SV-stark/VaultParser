@@ -7,7 +7,7 @@ use std::collections::HashMap;
 /// This struct defines the extraction behaviors, coordinates for column boundaries,
 /// vertical row clustering tolerance, trimming limits, and filters.
 /// Usually constructed using [`ExtractionConfigBuilder`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionConfig {
     /// X-coordinate column dividers, sorted in ascending order (values between 0.0 and 1.0 relative to page width)
     pub col_guides: Vec<f64>,
@@ -47,6 +47,29 @@ pub struct ExtractionConfig {
     /// Optional end date filter (inclusive) in YYYY-MM-DD or DD-MM-YYYY format
     #[serde(default)]
     pub to_date: Option<String>,
+}
+
+impl std::fmt::Debug for ExtractionConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtractionConfig")
+            .field("col_guides", &self.col_guides)
+            .field("col_mappings", &self.col_mappings)
+            .field("y_tolerance", &self.y_tolerance)
+            .field("merge_multi_line", &self.merge_multi_line)
+            .field("skip_header_rows", &self.skip_header_rows)
+            .field("skip_footer_rows", &self.skip_footer_rows)
+            .field("filter_only_date", &self.filter_only_date)
+            .field("filter_only_amount", &self.filter_only_amount)
+            .field("y_top_trim", &self.y_top_trim)
+            .field("y_bottom_trim", &self.y_bottom_trim)
+            .field("manual_edits", &self.manual_edits)
+            .field("deleted_rows", &self.deleted_rows)
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .field("categorize", &self.categorize)
+            .field("from_date", &self.from_date)
+            .field("to_date", &self.to_date)
+            .finish()
+    }
 }
 
 impl Default for ExtractionConfig {

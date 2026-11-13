@@ -3,11 +3,10 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use vaultparser::exporter::{
     export_to_csv, export_to_json, export_to_qif, export_to_tsv, export_to_xlsx,
-    reconcile_running_balance,
+    extract_row_debit_credit, reconcile_running_balance,
 };
 use vaultparser::{
-    BankPreset, ExtractedTable, ExtractionConfig, detect_column_guides, detect_column_mappings,
-    detect_preset_from_file, extract_from_file,
+    BankPreset, ExtractedTable, ExtractionConfig, detect_layout_from_file, extract_from_file,
 };
 
 #[derive(Parser, Debug)]
@@ -137,13 +136,11 @@ fn infer_format_from_str(s: &str) -> Option<&'static str> {
 }
 
 fn print_statement_summary(table: &ExtractedTable) {
-    let mut total_debit = 0.0;
-    let mut total_credit = 0.0;
+    let mut total_debit_paise: i64 = 0;
+    let mut total_credit_paise: i64 = 0;
     let mut debit_count = 0;
     let mut credit_count = 0;
 
-    let mut debit_col: Option<usize> = None;
-    let mut credit_col: Option<usize> = None;
     let mut date_col: Option<usize> = None;
 
     for (col_idx, _) in table.active_indices.iter().enumerate() {
@@ -152,43 +149,25 @@ fn print_statement_summary(table: &ExtractedTable) {
             .get(col_idx)
             .map(|s| s.to_uppercase())
             .unwrap_or_default();
-        if (h.contains("WITHDRAWAL") || h.contains("DEBIT") || h.contains("DR"))
-            && !h.contains("BALANCE")
-            && debit_col.is_none()
-        {
-            debit_col = Some(col_idx);
-        } else if (h.contains("DEPOSIT") || h.contains("CREDIT") || h.contains("CR"))
-            && !h.contains("BALANCE")
-            && credit_col.is_none()
-        {
-            credit_col = Some(col_idx);
-        } else if h.contains("DATE") && date_col.is_none() {
+        if h.contains("DATE") && date_col.is_none() {
             date_col = Some(col_idx);
         }
     }
 
     for r in &table.rows {
-        if let Some(d_col) = debit_col.and_then(|c| table.active_indices.get(c)) {
-            if let Some(val) = r
-                .cells
-                .get(*d_col)
-                .and_then(|s| vaultparser::exporter::parse_amount(s))
-            {
-                total_debit += val.abs();
-                debit_count += 1;
-            }
+        let (debit, credit) = extract_row_debit_credit(table, r);
+        if let Some(val) = debit {
+            total_debit_paise += (val.abs() * 100.0).round() as i64;
+            debit_count += 1;
         }
-        if let Some(c_col) = credit_col.and_then(|c| table.active_indices.get(c)) {
-            if let Some(val) = r
-                .cells
-                .get(*c_col)
-                .and_then(|s| vaultparser::exporter::parse_amount(s))
-            {
-                total_credit += val.abs();
-                credit_count += 1;
-            }
+        if let Some(val) = credit {
+            total_credit_paise += (val.abs() * 100.0).round() as i64;
+            credit_count += 1;
         }
     }
+
+    let total_debit = total_debit_paise as f64 / 100.0;
+    let total_credit = total_credit_paise as f64 / 100.0;
 
     let first_date = date_col
         .and_then(|c| table.active_indices.get(c))
@@ -261,27 +240,32 @@ fn load_preset_config(
     spinner: &ProgressBar,
 ) -> Result<ExtractionConfig, Box<dyn std::error::Error>> {
     let mut config = if preset_str.to_lowercase() == "auto" {
-        spinner.set_message("Analyzing PDF to auto-detect bank preset...");
-        if let Some(detected_preset) = detect_preset_from_file(pdf_path, password)? {
-            spinner.println(format!(
-                "Auto-detected bank preset: {}!",
-                detected_preset.name()
-            ));
-            let mut c = detected_preset.config();
+        spinner
+            .set_message("Analyzing PDF layout (single-pass preset, guides & header mapping)...");
+        let layout = detect_layout_from_file(pdf_path, password, 0.0, 1.0)?;
+        if let (Some(key), Some(name)) = (&layout.preset_key, &layout.preset_name) {
+            spinner.println(format!("Auto-detected bank preset: {} ({})!", name, key));
+            let mut c = BankPreset::from_str(key)
+                .map(|p| p.config())
+                .unwrap_or_default();
             c.password = password.map(String::from);
             c
         } else {
-            spinner.println("No known bank preset matched. Falling back to auto-detecting column guide boundaries...");
-            spinner.set_message("Auto-detecting column boundaries...");
-            let guides = detect_column_guides(pdf_path, password, 0.0, 1.0)?;
-            spinner.println(format!("Auto-detected column boundaries: {:?}", guides));
-
-            let mappings = detect_column_mappings(pdf_path, password, &guides)?;
-            spinner.println(format!("Inferred column mappings: {:?}", mappings));
+            spinner.println(
+                "No known bank preset matched. Using auto-detected column boundaries and header mappings...",
+            );
+            spinner.println(format!(
+                "Auto-detected column boundaries: {:?}",
+                layout.guides
+            ));
+            spinner.println(format!("Inferred column mappings: {:?}", layout.mappings));
 
             ExtractionConfig::builder()
-                .col_guides(guides)
-                .col_mappings(mappings)
+                .col_guides(layout.guides)
+                .col_mappings(layout.mappings)
+                .y_tolerance(layout.y_tolerance)
+                .y_top_trim(layout.y_top_trim)
+                .y_bottom_trim(layout.y_bottom_trim)
                 .filter_only_date(true)
                 .password(password.map(String::from))
                 .build()?
@@ -302,10 +286,13 @@ fn load_preset_config(
         c
     } else {
         spinner.finish_and_clear();
+        let all_keys: Vec<&str> = BankPreset::all().iter().map(|p| p.key()).collect();
         return Err(format!(
-            "Unknown bank preset '{}'. Available Presets: hdfc, sbi, canara, union, uco, indian, hpscb, hpgb, icici, pnb, kotak, axis, bob, yes, idfc, indusind, auto, or a JSON preset file",
-            preset_str
-        ).into());
+            "Unknown bank preset '{}'. Available Presets: {}, auto, or a JSON preset file",
+            preset_str,
+            all_keys.join(", ")
+        )
+        .into());
     };
 
     config.categorize = categorize;
@@ -513,31 +500,19 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
         break;
     }
 
-    // 2. Select Bank Preset
+    // 2. Select Bank Preset dynamically from BankPreset::all()
+    let all_presets = BankPreset::all();
+    let custom_opt_num = all_presets.len() + 2;
     println!("\n🏦 Select Bank Preset:");
     println!("  1) Auto-Detect / Dynamic boundary detection (auto)");
-    println!("  2) HDFC Bank India (hdfc)");
-    println!("  3) State Bank of India (sbi)");
-    println!("  4) Canara Bank (canara)");
-    println!("  5) Union Bank of India (union)");
-    println!("  6) UCO Bank (uco)");
-    println!("  7) Indian Bank (indian)");
-    println!("  8) H P State Co-operative Bank (hpscb)");
-    println!("  9) ICICI Bank (icici)");
-    println!("  10) Punjab National Bank (pnb)");
-    println!("  11) Kotak Mahindra Bank (kotak)");
-    println!("  12) Axis Bank (axis)");
-    println!("  13) Bank of Baroda (bob)");
-    println!("  14) YES Bank (yes)");
-    println!("  15) IDFC FIRST Bank (idfc)");
-    println!("  16) IndusInd Bank (indusind)");
-    println!("  17) Himachal Pradesh Gramin Bank (hpgb)");
-    println!("  18) Ujjivan Small Finance Bank (ujjivan)");
-    println!("  19) Custom JSON configuration file");
+    for (idx, p) in all_presets.iter().enumerate() {
+        println!("  {}) {} ({})", idx + 2, p.name(), p.key());
+    }
+    println!("  {}) Custom JSON configuration file", custom_opt_num);
 
     let mut preset = String::new();
     loop {
-        print!("👉 Select option (1-18) [default: 1]: ");
+        print!("👉 Select option (1-{}) [default: 1]: ", custom_opt_num);
         std::io::Write::flush(&mut std::io::stdout())?;
         preset.clear();
         std::io::stdin().read_line(&mut preset)?;
@@ -546,72 +521,11 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
             preset = "auto".to_string();
             break;
         }
-        match trimmed {
-            "2" => {
-                preset = "hdfc".to_string();
+        if let Ok(num) = trimmed.parse::<usize>() {
+            if (2..custom_opt_num).contains(&num) {
+                preset = all_presets[num - 2].key().to_string();
                 break;
-            }
-            "3" => {
-                preset = "sbi".to_string();
-                break;
-            }
-            "4" => {
-                preset = "canara".to_string();
-                break;
-            }
-            "5" => {
-                preset = "union".to_string();
-                break;
-            }
-            "6" => {
-                preset = "uco".to_string();
-                break;
-            }
-            "7" => {
-                preset = "indian".to_string();
-                break;
-            }
-            "8" => {
-                preset = "hpscb".to_string();
-                break;
-            }
-            "9" => {
-                preset = "icici".to_string();
-                break;
-            }
-            "10" => {
-                preset = "pnb".to_string();
-                break;
-            }
-            "11" => {
-                preset = "kotak".to_string();
-                break;
-            }
-            "12" => {
-                preset = "axis".to_string();
-                break;
-            }
-            "13" => {
-                preset = "bob".to_string();
-                break;
-            }
-            "14" => {
-                preset = "yes".to_string();
-                break;
-            }
-            "15" => {
-                preset = "idfc".to_string();
-                break;
-            }
-            "16" => {
-                preset = "indusind".to_string();
-                break;
-            }
-            "17" => {
-                preset = "hpgb".to_string();
-                break;
-            }
-            "19" => {
+            } else if num == custom_opt_num {
                 let mut json_path = String::new();
                 loop {
                     print!("📂 Enter path to custom JSON preset file: ");
@@ -632,14 +546,18 @@ fn run_wizard() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 break;
             }
-            _ => {
-                if BankPreset::from_str(trimmed).is_some() || trimmed == "auto" {
-                    preset = trimmed.to_string();
-                    break;
-                }
-                println!("Error: Invalid option. Please choose 1 to 19.");
-            }
         }
+        if let Some(matched) = BankPreset::from_str(trimmed) {
+            preset = matched.key().to_string();
+            break;
+        } else if trimmed.eq_ignore_ascii_case("auto") {
+            preset = "auto".to_string();
+            break;
+        }
+        println!(
+            "Error: Invalid option. Please choose 1 to {} or enter a preset key.",
+            custom_opt_num
+        );
     }
 
     // 3. Get Password (optional)

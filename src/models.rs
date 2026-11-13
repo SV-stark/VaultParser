@@ -72,3 +72,22 @@ pub struct BalanceDiscrepancy {
     /// Difference between reported and expected balance (`reported - expected`).
     pub difference: f64,
 }
+
+/// Complete auto-detected layout metadata from a single pass over a PDF statement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetectedLayout {
+    /// Matched bank preset machine key (e.g. `"hdfc"`), if recognized.
+    pub preset_key: Option<String>,
+    /// Matched bank preset display name, if recognized.
+    pub preset_name: Option<String>,
+    /// Auto-detected or preset-configured relative column guides (`0.0..=1.0`).
+    pub guides: Vec<f64>,
+    /// Inferred or preset-configured column mappings (`guides.len() + 1`).
+    pub mappings: Vec<String>,
+    /// Recommended vertical clustering tolerance (`y_tolerance`).
+    pub y_tolerance: f64,
+    /// Recommended top crop factor (`0.0..=1.0`).
+    pub y_top_trim: f64,
+    /// Recommended bottom crop factor (`0.0..=1.0`).
+    pub y_bottom_trim: f64,
+}

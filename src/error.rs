@@ -1,62 +1,38 @@
-use std::fmt;
+use thiserror::Error;
 
 /// Custom error types for the PDF extraction and parsing processes.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ExtractorError {
     /// Failed to open or read the PDF file.
+    #[error("Failed to open PDF document: {0}")]
     PdfOpenError(String),
     /// Failed to extract layouts, text elements, or words from the PDF document.
+    #[error("Failed to extract layout words from PDF: {0}")]
     PdfExtractionError(String),
     /// Error parsing JSON data (e.g. settings or configuration).
+    #[error("JSON error: {0}")]
     JsonError(String),
     /// Error compiling or writing the output to an Excel spreadsheet (.xlsx).
+    #[error("Excel writing error: {0}")]
     XlsxWriteError(String),
     /// Error formatting or writing the output to a CSV file.
+    #[error("CSV writing error: {0}")]
     CsvWriteError(String),
     /// Standard Input/Output system error.
-    IOError(std::io::Error),
+    #[error("I/O error: {0}")]
+    IOError(#[from] std::io::Error),
     /// Failed to decrypt the PDF document using lopdf.
+    #[error("PDF decryption error: {0}")]
     DecryptError(String),
     /// Invalid configuration parameters supplied.
+    #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
     /// Password required or incorrect password supplied for PDF decryption.
+    #[error("Password error: {0}")]
     PasswordError(String),
     /// The PDF appears to be a scanned image or contains no extractable digital text.
+    #[error("Scanned PDF detected: {0}")]
     ScannedPdf(String),
-}
-
-impl std::error::Error for ExtractorError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::IOError(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for ExtractorError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::PdfOpenError(e) => write!(f, "Failed to open PDF document: {}", e),
-            Self::PdfExtractionError(e) => {
-                write!(f, "Failed to extract layout words from PDF: {}", e)
-            }
-            Self::JsonError(e) => write!(f, "JSON error: {}", e),
-            Self::XlsxWriteError(e) => write!(f, "Excel writing error: {}", e),
-            Self::CsvWriteError(e) => write!(f, "CSV writing error: {}", e),
-            Self::IOError(e) => write!(f, "I/O error: {}", e),
-            Self::DecryptError(e) => write!(f, "PDF decryption error: {}", e),
-            Self::InvalidConfig(e) => write!(f, "Invalid configuration: {}", e),
-            Self::PasswordError(e) => write!(f, "Password error: {}", e),
-            Self::ScannedPdf(e) => write!(f, "Scanned PDF detected: {}", e),
-        }
-    }
-}
-
-impl From<std::io::Error> for ExtractorError {
-    fn from(err: std::io::Error) -> Self {
-        Self::IOError(err)
-    }
 }
 
 impl From<serde_json::Error> for ExtractorError {

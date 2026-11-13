@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-11-13
+
+### Added
+- **Single-Pass Layout Detection API**: Added `detect_layout_from_file`, `detect_layout_from_bytes`, and `DetectedLayout` to detect bank presets, column guides, header mappings, and trim parameters in a single PDF parse pass (avoiding opening and decrypting encrypted statements three separate times in `/api/detect` and `vpcli` `auto` mode).
+- **Single-Column `Amount` + `Dr/Cr` Reconciliation & Export**: Added `detect_drcr_indicator` and `extract_row_debit_credit` to support running-balance reconciliation, QIF export, and CLI statement summaries for single-amount-column bank statements (such as Kotak Mahindra Bank, indusind/federal variants, or statements using a separate `Dr/Cr` indicator column or inline `Cr`/`Dr` suffixes).
+- **Web UI Parity Controls**:
+  - Added **Auto-Categorize** toggle (`categorize`), **Date Range** filters (`from_date` / `to_date`), and **PDF Password** input directly in the Web UI sidebar.
+  - Added **Save Preset** and **Load Preset** buttons in the Web UI to export or import custom `ExtractionConfig` JSON preset files.
+  - Added **JSON** ledger download button (`format = "json_export"`) to the Web UI alongside `.xlsx`, `.csv`, `.tsv`, and `.qif`.
+  - Added `Dr / Cr` (`dr_cr`) column mapping option in the Web UI and automatic header inference in `detect_column_mappings`.
+
+### Changed
+- **Integer-Paise Monetary Arithmetic**: Updated `compute_column_totals`, `reconcile_running_balance`, and `vpcli` summary totals to accumulate currency amounts in integer paise (`i64`, `(val * 100.0).round() as i64`) to eliminate IEEE-754 floating-point drift on long multi-page ledgers.
+- **Unified Running Balance Check**: Consolidated the duplicate chronological-only balance continuity check in `extract_from_file` with `exporter::reconcile_running_balance`, and updated out-of-sequence date diagnostics to auto-detect chronological vs. reverse-chronological statement ordering.
+- **Single-Pass Word Extraction per Page**: Eliminated redundant per-page `extract_words` scan in `extract_from_file`.
+- **Dynamic CLI Preset Menu**: Updated the interactive `vpcli` wizard and error hints to build preset lists dynamically from `BankPreset::all()` so all 22 built-in bank presets are selectable.
+- **Complete `/api/presets` Payload**: Extended `/api/presets` and `/api/detect` to return `y_tolerance`, `y_top_trim`, `y_bottom_trim`, `merge_multi_line`, `filter_only_date`, and `filter_only_amount` so selecting a preset in the Web UI applies its vertical clustering tolerance and trim parameters.
+- Migrated `ExtractorError` to `thiserror = "2"`.
+
+### Fixed
+- **100% Offline Web UI**: Removed external Google Fonts stylesheet requests from `static/index.html` so the Web UI loads with zero external network calls in offline environments.
+
+### Security
+- Redacted `pdf_password` in `ExtractionConfig`'s `std::fmt::Debug` implementation to prevent accidental credential leakage in logs.
+- Scoped temporary decrypted PDF files to a dedicated `vaultparser` temp subdirectory with restrictive `0600` file permissions on Unix systems and explicit multipart error handling in the Web UI server.
+
 ## [0.5.1] - 2026-10-26
 
 ### Fixed

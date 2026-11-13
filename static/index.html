@@ -5,10 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VaultParser — Secure Offline-Only PDF Bank Converter</title>
     <meta name="description" content="Secure local bank statement converter. Parse transaction history locally using Rust without server uploads." />
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -52,7 +48,12 @@
               </button>
             </div>
 
-            <div id="file-loaded-stage" class="hidden">
+            <div class="form-group" style="margin-top: 0.75rem; margin-bottom: 0;">
+              <label for="pdf-password-input">🔑 PDF Password (Optional)</label>
+              <input type="password" id="pdf-password-input" placeholder="Leave blank if unencrypted" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.45rem 0.65rem; border-radius: 6px; width: 100%; box-sizing: border-box;" />
+            </div>
+
+            <div id="file-loaded-stage" class="hidden" style="margin-top: 0.75rem;">
               <div class="file-info-badge">
                 <div style="display: flex; flex-direction: column;">
                   <span id="file-info-name" class="file-info-name"></span>
@@ -113,6 +114,15 @@
                 <option value="custom">⚙️ Custom Layout</option>
               </select>
             </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.75rem;">
+              <button id="btn-save-preset" class="btn btn-secondary" style="padding: 0.45rem 0.5rem; font-size: 0.78rem;" title="Download current layout & settings as a reusable JSON preset">
+                💾 Save Preset
+              </button>
+              <button id="btn-load-preset" class="btn btn-secondary" style="padding: 0.45rem 0.5rem; font-size: 0.78rem;" title="Load a custom JSON preset file">
+                📂 Load Preset
+              </button>
+              <input type="file" id="preset-file-input" class="file-input" accept="application/json,.json" />
+            </div>
           </div>
 
           <!-- Card 3: Parser Tuning -->
@@ -170,11 +180,27 @@
                 <input type="checkbox" id="filter-date-input" checked style="display: none;" />
                 <div class="toggle-switch"></div>
               </label>
-              <label class="toggle-container" id="toggle-filter-amount-lbl">
+              <label class="toggle-container" id="toggle-filter-amount-lbl" style="margin-bottom: 0.5rem;">
                 <span>Require numbers in Amount cols</span>
                 <input type="checkbox" id="filter-amount-input" style="display: none;" />
                 <div class="toggle-switch"></div>
               </label>
+              <label class="toggle-container" id="toggle-categorize-lbl">
+                <span>Auto-categorize transactions</span>
+                <input type="checkbox" id="categorize-input" style="display: none;" />
+                <div class="toggle-switch"></div>
+              </label>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>From Date</label>
+                <input type="date" id="from-date-input" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.4rem 0.5rem; border-radius: 6px; width: 100%; box-sizing: border-box; font-size: 0.8rem;" />
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>To Date</label>
+                <input type="date" id="to-date-input" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); color: white; padding: 0.4rem 0.5rem; border-radius: 6px; width: 100%; box-sizing: border-box; font-size: 0.8rem;" />
+              </div>
             </div>
           </div>
 
@@ -249,6 +275,7 @@
                   <button id="btn-export-csv" class="btn btn-secondary">CSV</button>
                   <button id="btn-export-tsv" class="btn btn-secondary">TSV</button>
                   <button id="btn-export-qif" class="btn btn-secondary">QIF</button>
+                  <button id="btn-export-json" class="btn btn-secondary">JSON</button>
                   <button id="btn-export-xlsx" class="btn btn-primary">Export Excel (.xlsx)</button>
                 </div>
               </div>

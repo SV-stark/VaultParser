@@ -2047,7 +2047,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vaultparser"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "axum",
  "chrono",
@@ -2059,6 +2059,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "tokio",
  "tower-http",
  "tracing",

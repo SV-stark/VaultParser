@@ -10,7 +10,7 @@ use crate::models::ExtractedTable;
 fn compute_column_totals(table: &ExtractedTable) -> Vec<(bool, f64, usize)> {
     let num_cols = table.active_indices.len();
     let mut is_num = vec![false; num_cols];
-    let mut sums = vec![0.0; num_cols];
+    let mut sums_paise = vec![0i64; num_cols];
     let mut counts = vec![0; num_cols];
 
     for (col_idx, _active_idx) in table.active_indices.iter().enumerate() {
@@ -23,11 +23,13 @@ fn compute_column_totals(table: &ExtractedTable) -> Vec<(bool, f64, usize)> {
             .map(|h| h.to_uppercase())
             .unwrap_or_default();
 
-        is_num[col_idx] = header_upper.contains("DEBIT")
+        is_num[col_idx] = (header_upper.contains("DEBIT")
             || header_upper.contains("CREDIT")
             || header_upper.contains("AMOUNT")
             || header_upper.contains("WITHDRAWAL")
-            || header_upper.contains("DEPOSIT");
+            || header_upper.contains("DEPOSIT"))
+            && !header_upper.contains("DR_CR")
+            && !header_upper.contains("DR/CR");
     }
 
     for r in &table.rows {
@@ -35,7 +37,7 @@ fn compute_column_totals(table: &ExtractedTable) -> Vec<(bool, f64, usize)> {
             if is_num[col_idx]
                 && let Some(val) = r.cells.get(active_idx).and_then(|c| parse_amount(c))
             {
-                sums[col_idx] += val;
+                sums_paise[col_idx] += (val * 100.0).round() as i64;
                 counts[col_idx] += 1;
             }
         }
@@ -43,7 +45,11 @@ fn compute_column_totals(table: &ExtractedTable) -> Vec<(bool, f64, usize)> {
 
     let mut result = Vec::with_capacity(num_cols);
     for col_idx in 0..num_cols {
-        result.push((is_num[col_idx], sums[col_idx], counts[col_idx]));
+        result.push((
+            is_num[col_idx],
+            sums_paise[col_idx] as f64 / 100.0,
+            counts[col_idx],
+        ));
     }
     result
 }
@@ -539,14 +545,145 @@ pub fn export_to_tsv(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
     export_delimited(table, b'\t')
 }
 
+/// Detects an explicit Debit (`Some(false)`) or Credit (`Some(true)`) indicator
+/// within a string (either a dedicated `DR_CR` cell or a suffix/prefix on an amount cell).
+#[must_use]
+pub fn detect_drcr_indicator(val: &str) -> Option<bool> {
+    let clean = val.trim();
+    if clean.is_empty() {
+        return None;
+    }
+    let upper = clean.to_ascii_uppercase();
+    if upper == "CR"
+        || upper == "CR."
+        || upper == "CREDIT"
+        || upper == "DEP"
+        || upper == "DEPOSIT"
+        || upper == "C"
+    {
+        return Some(true);
+    }
+    if upper == "DR"
+        || upper == "DR."
+        || upper == "DEBIT"
+        || upper == "WDL"
+        || upper == "WITHDRAWAL"
+        || upper == "D"
+    {
+        return Some(false);
+    }
+
+    for token in upper.split(|c: char| !c.is_ascii_alphabetic()) {
+        match token {
+            "CR" | "CREDIT" => return Some(true),
+            "DR" | "DEBIT" => return Some(false),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Resolves the `(withdrawal, deposit)` amounts for a single row of an [`ExtractedTable`],
+/// supporting both dual-column (`DEBIT` + `CREDIT`) layouts and single-column (`AMOUNT` or
+/// `DEBIT`-only) layouts paired with `Dr`/`Cr` indicators or signed values.
+#[must_use]
+pub fn extract_row_debit_credit(
+    table: &ExtractedTable,
+    row: &crate::models::PageRow,
+) -> (Option<f64>, Option<f64>) {
+    let mut withdrawal_idx: Option<usize> = None;
+    let mut deposit_idx: Option<usize> = None;
+    let mut amount_idx: Option<usize> = None;
+    let mut drcr_idx: Option<usize> = None;
+
+    for (col_idx, _) in table.active_indices.iter().enumerate() {
+        let h = table
+            .headers
+            .get(col_idx)
+            .map(|s| s.to_uppercase())
+            .unwrap_or_default();
+
+        if h == "DR_CR"
+            || h == "DR/CR"
+            || h == "CR/DR"
+            || h == "TYPE"
+            || (h.contains("DR") && h.contains("CR"))
+        {
+            if drcr_idx.is_none() {
+                drcr_idx = Some(col_idx);
+            }
+        } else if h.contains("AMOUNT") && !h.contains("BALANCE") && amount_idx.is_none() {
+            amount_idx = Some(col_idx);
+        } else if (h.contains("WITHDRAWAL") || h.contains("DEBIT") || h == "DR")
+            && !h.contains("BALANCE")
+            && withdrawal_idx.is_none()
+        {
+            withdrawal_idx = Some(col_idx);
+        } else if (h.contains("DEPOSIT") || h.contains("CREDIT") || h == "CR")
+            && !h.contains("BALANCE")
+            && deposit_idx.is_none()
+        {
+            deposit_idx = Some(col_idx);
+        }
+    }
+
+    let drcr_col_hint = drcr_idx
+        .and_then(|c| table.active_indices.get(c))
+        .and_then(|&idx| row.cells.get(idx))
+        .and_then(|s| detect_drcr_indicator(s));
+
+    // Case 1: Both withdrawal and deposit columns exist
+    if withdrawal_idx.is_some() && deposit_idx.is_some() {
+        let w = withdrawal_idx
+            .and_then(|c| table.active_indices.get(c))
+            .and_then(|&idx| row.cells.get(idx))
+            .and_then(|s| parse_amount(s))
+            .map(|v| v.abs())
+            .filter(|&v| v > 0.0);
+        let d = deposit_idx
+            .and_then(|c| table.active_indices.get(c))
+            .and_then(|&idx| row.cells.get(idx))
+            .and_then(|s| parse_amount(s))
+            .map(|v| v.abs())
+            .filter(|&v| v > 0.0);
+        if w.is_some() || d.is_some() {
+            return (w, d);
+        }
+    }
+
+    // Case 2: Single combined amount column (or a single debit/credit column like Kotak)
+    if let Some(single_col) = amount_idx.or(withdrawal_idx).or(deposit_idx)
+        && let Some(&act_idx) = table.active_indices.get(single_col)
+        && let Some(raw_str) = row.cells.get(act_idx)
+        && let Some(parsed) = parse_amount(raw_str)
+        && parsed.abs() > 0.0
+    {
+        let abs_val = parsed.abs();
+        let indicator = drcr_col_hint.or_else(|| detect_drcr_indicator(raw_str));
+        match indicator {
+            Some(true) => return (None, Some(abs_val)),
+            Some(false) => return (Some(abs_val), None),
+            None => {
+                if parsed < 0.0 {
+                    return (Some(abs_val), None);
+                } else if amount_idx.is_some() || deposit_idx.is_some() {
+                    return (None, Some(abs_val));
+                } else {
+                    return (Some(abs_val), None);
+                }
+            }
+        }
+    }
+
+    (None, None)
+}
+
 /// Exports transaction records into Quicken Interchange Format (.qif) for financial apps.
 pub fn export_to_qif(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> {
     let mut out = String::from("!Type:Bank\n");
 
     let mut date_col: Option<usize> = None;
     let mut desc_col: Option<usize> = None;
-    let mut debit_col: Option<usize> = None;
-    let mut credit_col: Option<usize> = None;
     let mut ref_col: Option<usize> = None;
 
     for (col_idx, _) in table.active_indices.iter().enumerate() {
@@ -561,16 +698,6 @@ pub fn export_to_qif(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
             && desc_col.is_none()
         {
             desc_col = Some(col_idx);
-        } else if (h.contains("WITHDRAWAL") || h.contains("DEBIT") || h.contains("DR"))
-            && !h.contains("BALANCE")
-            && debit_col.is_none()
-        {
-            debit_col = Some(col_idx);
-        } else if (h.contains("DEPOSIT") || h.contains("CREDIT") || h.contains("CR"))
-            && !h.contains("BALANCE")
-            && credit_col.is_none()
-        {
-            credit_col = Some(col_idx);
         } else if (h.contains("REF") || h.contains("CHQ") || h.contains("CHEQUE"))
             && ref_col.is_none()
         {
@@ -580,24 +707,14 @@ pub fn export_to_qif(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
 
     for r in &table.rows {
         // D: Date
-        if let Some(d_idx) = date_col.and_then(|c| table.active_indices.get(c)) {
-            if let Some(date_val) = r.cells.get(*d_idx).filter(|s| !s.trim().is_empty()) {
-                out.push_str(&format!("D{}\n", date_val.trim()));
-            }
+        if let Some(d_idx) = date_col.and_then(|c| table.active_indices.get(c))
+            && let Some(date_val) = r.cells.get(*d_idx).filter(|s| !s.trim().is_empty())
+        {
+            out.push_str(&format!("D{}\n", date_val.trim()));
         }
 
         // T: Amount (Debit is negative, Credit is positive)
-        let debit = debit_col
-            .and_then(|c| table.active_indices.get(c))
-            .and_then(|&idx| r.cells.get(idx))
-            .and_then(|s| parse_amount(s))
-            .map(|v| v.abs());
-
-        let credit = credit_col
-            .and_then(|c| table.active_indices.get(c))
-            .and_then(|&idx| r.cells.get(idx))
-            .and_then(|s| parse_amount(s))
-            .map(|v| v.abs());
+        let (debit, credit) = extract_row_debit_credit(table, r);
 
         if let Some(cr) = credit {
             if cr > 0.0 {
@@ -610,18 +727,18 @@ pub fn export_to_qif(table: &ExtractedTable) -> Result<Vec<u8>, ExtractorError> 
         }
 
         // P: Payee / Description
-        if let Some(p_idx) = desc_col.and_then(|c| table.active_indices.get(c)) {
-            if let Some(desc) = r.cells.get(*p_idx).filter(|s| !s.trim().is_empty()) {
-                let clean_desc = desc.replace('\n', " ").replace('\r', " ");
-                out.push_str(&format!("P{}\n", clean_desc.trim()));
-            }
+        if let Some(p_idx) = desc_col.and_then(|c| table.active_indices.get(c))
+            && let Some(desc) = r.cells.get(*p_idx).filter(|s| !s.trim().is_empty())
+        {
+            let clean_desc = desc.replace(['\n', '\r'], " ");
+            out.push_str(&format!("P{}\n", clean_desc.trim()));
         }
 
         // N: Reference / Cheque
-        if let Some(n_idx) = ref_col.and_then(|c| table.active_indices.get(c)) {
-            if let Some(ref_val) = r.cells.get(*n_idx).filter(|s| !s.trim().is_empty()) {
-                out.push_str(&format!("N{}\n", ref_val.trim()));
-            }
+        if let Some(n_idx) = ref_col.and_then(|c| table.active_indices.get(c))
+            && let Some(ref_val) = r.cells.get(*n_idx).filter(|s| !s.trim().is_empty())
+        {
+            out.push_str(&format!("N{}\n", ref_val.trim()));
         }
 
         out.push_str("^\n");
@@ -648,8 +765,6 @@ pub fn reconcile_running_balance(table: &ExtractedTable) -> crate::models::Balan
         };
     }
 
-    let mut withdrawal_idx: Option<usize> = None;
-    let mut deposit_idx: Option<usize> = None;
     let mut balance_idx: Option<usize> = None;
     let mut date_idx: Option<usize> = None;
 
@@ -660,17 +775,7 @@ pub fn reconcile_running_balance(table: &ExtractedTable) -> crate::models::Balan
             .map(|s| s.to_uppercase())
             .unwrap_or_default();
 
-        if (h.contains("WITHDRAWAL") || h.contains("DEBIT") || h.contains("DR"))
-            && !h.contains("BALANCE")
-            && withdrawal_idx.is_none()
-        {
-            withdrawal_idx = Some(col_idx);
-        } else if (h.contains("DEPOSIT") || h.contains("CREDIT") || h.contains("CR"))
-            && !h.contains("BALANCE")
-            && deposit_idx.is_none()
-        {
-            deposit_idx = Some(col_idx);
-        } else if h.contains("BALANCE") && balance_idx.is_none() {
+        if h.contains("BALANCE") && balance_idx.is_none() {
             balance_idx = Some(col_idx);
         } else if h.contains("DATE") && date_idx.is_none() {
             date_idx = Some(col_idx);
@@ -707,17 +812,7 @@ pub fn reconcile_running_balance(table: &ExtractedTable) -> crate::models::Balan
             let bal_str = r.cells.get(active_bal_idx)?;
             let balance = parse_amount(bal_str)?;
 
-            let withdrawal = withdrawal_idx
-                .and_then(|w_col| table.active_indices.get(w_col))
-                .and_then(|&act_idx| r.cells.get(act_idx))
-                .and_then(|c| parse_amount(c))
-                .map(|v| v.abs());
-
-            let deposit = deposit_idx
-                .and_then(|d_col| table.active_indices.get(d_col))
-                .and_then(|&act_idx| r.cells.get(act_idx))
-                .and_then(|c| parse_amount(c))
-                .map(|v| v.abs());
+            let (withdrawal, deposit) = extract_row_debit_credit(table, r);
 
             let date = date_idx
                 .and_then(|d_col| table.active_indices.get(d_col))
@@ -745,6 +840,8 @@ pub fn reconcile_running_balance(table: &ExtractedTable) -> crate::models::Balan
         };
     }
 
+    let to_paise = |v: f64| -> i64 { (v * 100.0).round() as i64 };
+
     let mut forward_matches = 0;
     let mut reverse_matches = 0;
     let sample_limit = (parsed_rows.len() - 1).min(10);
@@ -753,13 +850,18 @@ pub fn reconcile_running_balance(table: &ExtractedTable) -> crate::models::Balan
         let prev = &parsed_rows[i - 1];
         let curr = &parsed_rows[i];
 
-        let exp_fwd = prev.balance - curr.withdrawal.unwrap_or(0.0) + curr.deposit.unwrap_or(0.0);
-        if (curr.balance - exp_fwd).abs() < 0.05 {
+        let prev_p = to_paise(prev.balance);
+        let curr_p = to_paise(curr.balance);
+
+        let exp_fwd = prev_p - to_paise(curr.withdrawal.unwrap_or(0.0))
+            + to_paise(curr.deposit.unwrap_or(0.0));
+        if (curr_p - exp_fwd).abs() <= 5 {
             forward_matches += 1;
         }
 
-        let exp_rev = prev.balance + prev.withdrawal.unwrap_or(0.0) - prev.deposit.unwrap_or(0.0);
-        if (curr.balance - exp_rev).abs() < 0.05 {
+        let exp_rev = prev_p + to_paise(prev.withdrawal.unwrap_or(0.0))
+            - to_paise(prev.deposit.unwrap_or(0.0));
+        if (curr_p - exp_rev).abs() <= 5 {
             reverse_matches += 1;
         }
     }
@@ -774,14 +876,19 @@ pub fn reconcile_running_balance(table: &ExtractedTable) -> crate::models::Balan
         let prev = &parsed_rows[i - 1];
         let curr = &parsed_rows[i];
 
-        let expected = if is_reverse {
-            prev.balance + prev.withdrawal.unwrap_or(0.0) - prev.deposit.unwrap_or(0.0)
+        let prev_p = to_paise(prev.balance);
+        let curr_p = to_paise(curr.balance);
+
+        let expected_p = if is_reverse {
+            prev_p + to_paise(prev.withdrawal.unwrap_or(0.0))
+                - to_paise(prev.deposit.unwrap_or(0.0))
         } else {
-            prev.balance - curr.withdrawal.unwrap_or(0.0) + curr.deposit.unwrap_or(0.0)
+            prev_p - to_paise(curr.withdrawal.unwrap_or(0.0))
+                + to_paise(curr.deposit.unwrap_or(0.0))
         };
 
-        let diff = curr.balance - expected;
-        if diff.abs() <= 0.05 {
+        let diff_p = curr_p - expected_p;
+        if diff_p.abs() <= 5 {
             matching_rows += 1;
         } else {
             discrepancies.push(BalanceDiscrepancy {
@@ -792,8 +899,8 @@ pub fn reconcile_running_balance(table: &ExtractedTable) -> crate::models::Balan
                 withdrawal: curr.withdrawal,
                 deposit: curr.deposit,
                 reported_balance: curr.balance,
-                expected_balance: expected,
-                difference: (diff * 100.0).round() / 100.0,
+                expected_balance: expected_p as f64 / 100.0,
+                difference: diff_p as f64 / 100.0,
             });
         }
     }
@@ -989,5 +1096,66 @@ mod tests {
         assert_eq!(rec.discrepancies[0].row_index, 3);
         assert_eq!(rec.discrepancies[0].expected_balance, 12000.0);
         assert_eq!(rec.discrepancies[0].reported_balance, 11500.0);
+    }
+
+    #[test]
+    fn test_reconcile_single_amount_column_with_drcr() {
+        let table = ExtractedTable {
+            headers: vec![
+                "DATE".to_string(),
+                "DESCRIPTION".to_string(),
+                "AMOUNT".to_string(),
+                "DR_CR".to_string(),
+                "BALANCE".to_string(),
+            ],
+            active_indices: vec![0, 1, 2, 3, 4],
+            rows: vec![
+                PageRow {
+                    id: "r1".to_string(),
+                    y: 100.0,
+                    page: 1,
+                    cells: vec![
+                        "01-01-2024".to_string(),
+                        "Opening".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "10,000.00".to_string(),
+                    ],
+                },
+                PageRow {
+                    id: "r2".to_string(),
+                    y: 110.0,
+                    page: 1,
+                    cells: vec![
+                        "02-01-2024".to_string(),
+                        "ATM Withdrawal".to_string(),
+                        "1,500.00".to_string(),
+                        "DR".to_string(),
+                        "8,500.00".to_string(),
+                    ],
+                },
+                PageRow {
+                    id: "r3".to_string(),
+                    y: 120.0,
+                    page: 1,
+                    cells: vec![
+                        "03-01-2024".to_string(),
+                        "UPI Credit".to_string(),
+                        "2,500.00 Cr".to_string(),
+                        "".to_string(),
+                        "11,000.00".to_string(),
+                    ],
+                },
+            ],
+        };
+
+        let rec = reconcile_running_balance(&table);
+        assert_eq!(rec.total_evaluated, 2);
+        assert_eq!(rec.matching_rows, 2);
+        assert!(rec.is_reconciled);
+
+        let qif = String::from_utf8(export_to_qif(&table).unwrap()).unwrap();
+        assert!(qif.contains("T-1500.00"));
+        assert!(qif.contains("T2500.00"));
     }
 }

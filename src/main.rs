@@ -10,9 +10,10 @@ use std::fs;
 use tower_http::services::ServeDir;
 
 use vaultparser::{
-    BankPreset, ExtractionConfig, detect_column_guides_from_bytes, detect_preset_from_bytes,
+    BankPreset, ExtractionConfig, detect_layout_from_bytes,
     exporter::{
-        export_to_csv, export_to_qif, export_to_tsv, export_to_xlsx, reconcile_running_balance,
+        export_to_csv, export_to_json, export_to_qif, export_to_tsv, export_to_xlsx,
+        reconcile_running_balance,
     },
     extract_from_bytes,
 };
@@ -26,6 +27,12 @@ async fn get_presets() -> impl IntoResponse {
             "name": preset.name(),
             "guides": cfg.col_guides,
             "mappings": cfg.col_mappings,
+            "y_tolerance": cfg.y_tolerance,
+            "y_top_trim": cfg.y_top_trim,
+            "y_bottom_trim": cfg.y_bottom_trim,
+            "merge_multi_line": cfg.merge_multi_line,
+            "filter_only_date": cfg.filter_only_date,
+            "filter_only_amount": cfg.filter_only_amount,
         }));
     }
     Json(presets)
@@ -65,14 +72,30 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                y_top_trim = y.parse::<f64>().unwrap_or(0.0);
+                match y.parse::<f64>() {
+                    Ok(v) if (0.0..=1.0).contains(&v) && !v.is_nan() => y_top_trim = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid y_top_trim: must be a number in [0.0, 1.0]".to_string(),
+                        ));
+                    }
+                }
             }
             "y_bottom_trim" => {
                 let y = field
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                y_bottom_trim = y.parse::<f64>().unwrap_or(1.0);
+                match y.parse::<f64>() {
+                    Ok(v) if (0.0..=1.0).contains(&v) && !v.is_nan() => y_bottom_trim = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid y_bottom_trim: must be a number in [0.0, 1.0]".to_string(),
+                        ));
+                    }
+                }
             }
             _ => {}
         }
@@ -82,35 +105,22 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
         return Err((StatusCode::BAD_REQUEST, "No file uploaded".to_string()));
     }
 
-    let (preset_key, preset_name, guides) =
-        tokio::task::spawn_blocking(move || -> Result<_, String> {
-            let preset_opt = detect_preset_from_bytes(&file_bytes, password.as_deref())
-                .ok()
-                .flatten();
-            let (p_key, p_name) = match preset_opt {
-                Some(preset) => (
-                    Some(preset.key().to_string()),
-                    Some(preset.name().to_string()),
-                ),
-                None => (None, None),
-            };
-            let guides = detect_column_guides_from_bytes(
-                &file_bytes,
-                password.as_deref(),
-                y_top_trim,
-                y_bottom_trim,
-            )
-            .unwrap_or_default();
-            Ok((p_key, p_name, guides))
-        })
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let layout = tokio::task::spawn_blocking(move || {
+        detect_layout_from_bytes(&file_bytes, password.as_deref(), y_top_trim, y_bottom_trim)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let response = serde_json::json!({
-        "preset": preset_key,
-        "preset_name": preset_name,
-        "guides": guides
+        "preset": layout.preset_key,
+        "preset_name": layout.preset_name,
+        "guides": layout.guides,
+        "mappings": layout.mappings,
+        "y_tolerance": layout.y_tolerance,
+        "y_top_trim": layout.y_top_trim,
+        "y_bottom_trim": layout.y_bottom_trim,
     });
 
     Ok(Json(response).into_response())
@@ -118,6 +128,7 @@ async fn detect_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Stat
 
 async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut file_bytes = Vec::new();
+    let mut upload_file_name: Option<String> = None;
     let mut col_guides = String::new();
     let mut col_mappings = String::new();
     let mut y_tolerance = 6.0;
@@ -144,6 +155,7 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "file" => {
+                upload_file_name = field.file_name().map(|s| s.to_string());
                 file_bytes = field
                     .bytes()
                     .await
@@ -167,7 +179,15 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                y_tolerance = t.parse::<f64>().unwrap_or(6.0);
+                match t.parse::<f64>() {
+                    Ok(v) if v > 0.0 && !v.is_nan() => y_tolerance = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid y_tolerance: must be a positive number".to_string(),
+                        ));
+                    }
+                }
             }
             "merge_multi_line" => {
                 let m = field
@@ -181,28 +201,60 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                skip_header_rows = s.parse::<usize>().unwrap_or(0);
+                match s.parse::<usize>() {
+                    Ok(v) => skip_header_rows = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid skip_header_rows: must be a non-negative integer".to_string(),
+                        ));
+                    }
+                }
             }
             "skip_footer_rows" => {
                 let s = field
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                skip_footer_rows = s.parse::<usize>().unwrap_or(0);
+                match s.parse::<usize>() {
+                    Ok(v) => skip_footer_rows = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid skip_footer_rows: must be a non-negative integer".to_string(),
+                        ));
+                    }
+                }
             }
             "filter_only_date" => {
                 let f = field
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                filter_only_date = f.parse::<bool>().unwrap_or(true);
+                match f.parse::<bool>() {
+                    Ok(v) => filter_only_date = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid filter_only_date: must be true or false".to_string(),
+                        ));
+                    }
+                }
             }
             "filter_only_amount" => {
                 let f = field
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                filter_only_amount = f.parse::<bool>().unwrap_or(false);
+                match f.parse::<bool>() {
+                    Ok(v) => filter_only_amount = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid filter_only_amount: must be true or false".to_string(),
+                        ));
+                    }
+                }
             }
             "format" => {
                 format_type = field
@@ -227,14 +279,30 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                y_top_trim = y.parse::<f64>().unwrap_or(0.0);
+                match y.parse::<f64>() {
+                    Ok(v) if (0.0..=1.0).contains(&v) && !v.is_nan() => y_top_trim = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid y_top_trim: must be a number in [0.0, 1.0]".to_string(),
+                        ));
+                    }
+                }
             }
             "y_bottom_trim" => {
                 let y = field
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                y_bottom_trim = y.parse::<f64>().unwrap_or(1.0);
+                match y.parse::<f64>() {
+                    Ok(v) if (0.0..=1.0).contains(&v) && !v.is_nan() => y_bottom_trim = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid y_bottom_trim: must be a number in [0.0, 1.0]".to_string(),
+                        ));
+                    }
+                }
             }
             "password" => {
                 let p = field
@@ -250,7 +318,15 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
                     .text()
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-                categorize = c.parse::<bool>().unwrap_or(false);
+                match c.parse::<bool>() {
+                    Ok(v) => categorize = v,
+                    _ => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            "Invalid categorize: must be true or false".to_string(),
+                        ));
+                    }
+                }
             }
             "from_date" => {
                 let d = field
@@ -342,6 +418,10 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
             let qif_data =
                 export_to_qif(&extracted_table).map_err(|e| format!("QIF export failed: {}", e))?;
             Ok((extracted_table, Some(("qif", qif_data))))
+        } else if format_type_clone == "json_export" {
+            let json_data = export_to_json(&extracted_table)
+                .map_err(|e| format!("JSON export failed: {}", e))?;
+            Ok((extracted_table, Some(("json", json_data))))
         } else {
             Ok((extracted_table, None))
         }
@@ -351,6 +431,12 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     if let Some((kind, bytes)) = export_payload {
+        let stem = upload_file_name
+            .as_deref()
+            .and_then(|n| std::path::Path::new(n).file_stem())
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("statement");
         let mut res_headers = HeaderMap::new();
         match kind {
             "xlsx" => {
@@ -360,48 +446,50 @@ async fn convert_pdf(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     ),
                 );
-                res_headers.insert(
-                    header::CONTENT_DISPOSITION,
-                    axum::http::HeaderValue::from_static(
-                        "attachment; filename=converted_statement.xlsx",
-                    ),
-                );
+                let disp = format!("attachment; filename={}_converted.xlsx", stem);
+                if let Ok(v) = axum::http::HeaderValue::from_str(&disp) {
+                    res_headers.insert(header::CONTENT_DISPOSITION, v);
+                }
             }
             "csv" => {
                 res_headers.insert(
                     header::CONTENT_TYPE,
                     axum::http::HeaderValue::from_static("text/csv"),
                 );
-                res_headers.insert(
-                    header::CONTENT_DISPOSITION,
-                    axum::http::HeaderValue::from_static(
-                        "attachment; filename=converted_statement.csv",
-                    ),
-                );
+                let disp = format!("attachment; filename={}_converted.csv", stem);
+                if let Ok(v) = axum::http::HeaderValue::from_str(&disp) {
+                    res_headers.insert(header::CONTENT_DISPOSITION, v);
+                }
             }
             "tsv" => {
                 res_headers.insert(
                     header::CONTENT_TYPE,
                     axum::http::HeaderValue::from_static("text/tab-separated-values"),
                 );
-                res_headers.insert(
-                    header::CONTENT_DISPOSITION,
-                    axum::http::HeaderValue::from_static(
-                        "attachment; filename=converted_statement.tsv",
-                    ),
-                );
+                let disp = format!("attachment; filename={}_converted.tsv", stem);
+                if let Ok(v) = axum::http::HeaderValue::from_str(&disp) {
+                    res_headers.insert(header::CONTENT_DISPOSITION, v);
+                }
             }
             "qif" => {
                 res_headers.insert(
                     header::CONTENT_TYPE,
                     axum::http::HeaderValue::from_static("application/x-qif"),
                 );
+                let disp = format!("attachment; filename={}_converted.qif", stem);
+                if let Ok(v) = axum::http::HeaderValue::from_str(&disp) {
+                    res_headers.insert(header::CONTENT_DISPOSITION, v);
+                }
+            }
+            "json" => {
                 res_headers.insert(
-                    header::CONTENT_DISPOSITION,
-                    axum::http::HeaderValue::from_static(
-                        "attachment; filename=converted_statement.qif",
-                    ),
+                    header::CONTENT_TYPE,
+                    axum::http::HeaderValue::from_static("application/json"),
                 );
+                let disp = format!("attachment; filename={}_converted.json", stem);
+                if let Ok(v) = axum::http::HeaderValue::from_str(&disp) {
+                    res_headers.insert(header::CONTENT_DISPOSITION, v);
+                }
             }
             _ => {}
         }
@@ -426,22 +514,19 @@ fn cleanup_stale_temp_files() {
         }
     }
 
-    let temp_dir = std::env::temp_dir();
-    if let Ok(entries) = fs::read_dir(temp_dir) {
+    // Only ever clean our own dedicated temp subdirectory.
+    let temp_dir = std::env::temp_dir().join("vaultparser");
+    if let Ok(entries) = fs::read_dir(&temp_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with("vp_") && name.ends_with(".pdf") {
-                    if let Ok(meta) = entry.metadata() {
-                        if let Ok(modified) = meta.modified() {
-                            if let Ok(elapsed) = modified.elapsed() {
-                                if elapsed.as_secs() > 1800 {
-                                    let _ = fs::remove_file(path);
-                                }
-                            }
-                        }
-                    }
-                }
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && name.ends_with(".pdf")
+                && let Ok(meta) = entry.metadata()
+                && let Ok(modified) = meta.modified()
+                && let Ok(elapsed) = modified.elapsed()
+                && elapsed.as_secs() > 1800
+            {
+                let _ = fs::remove_file(path);
             }
         }
     }

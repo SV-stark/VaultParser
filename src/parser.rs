@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tracing::{debug, error, info, warn};
@@ -7,7 +6,7 @@ use pdfsink_rs::PdfDocument;
 
 use crate::config::ExtractionConfig;
 use crate::error::ExtractorError;
-use crate::models::{ExtractedTable, PageRow, WordItem};
+use crate::models::{DetectedLayout, ExtractedTable, PageRow, WordItem};
 
 #[derive(Debug, Clone)]
 struct GroupedRow {
@@ -209,6 +208,26 @@ impl Drop for TempFileGuard {
     }
 }
 
+/// Dedicated directory for VaultParser temporary files, keeping sensitive
+/// statement PDFs out of the shared OS temp root.
+pub fn vaultparser_temp_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("vaultparser");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Writes bytes to a temp path and, on Unix, restricts permissions to 0600.
+fn write_temp_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), ExtractorError> {
+    std::fs::write(path, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+    Ok(())
+}
+
 /// Helper to decrypt a PDF natively with lopdf if it's encrypted
 fn decrypt_pdf_if_needed(
     temp_path: &Path,
@@ -235,7 +254,7 @@ fn decrypt_pdf_if_needed(
                 .and_then(|s| s.to_str())
                 .unwrap_or("temp")
         );
-        let decrypted_path = std::env::temp_dir().join(decrypted_name);
+        let decrypted_path = vaultparser_temp_dir().join(decrypted_name);
         let pwd = password.unwrap_or("");
 
         info!(
@@ -269,6 +288,12 @@ fn decrypt_pdf_if_needed(
             error!("Failed to save decrypted PDF copy: {:?}", e);
             ExtractorError::DecryptError(format!("Failed to save decrypted PDF: {:?}", e))
         })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            let _ = std::fs::set_permissions(&decrypted_path, perms);
+        }
 
         info!(
             "PDF successfully decrypted and saved to '{}'.",
@@ -284,55 +309,12 @@ fn decrypt_pdf_if_needed(
     }
 }
 
-/// Automatically detect column guides by analyzing the horizontal density of text spans
 #[allow(clippy::needless_range_loop)]
-pub fn detect_column_guides<P: AsRef<Path>>(
-    pdf_path: P,
-    password: Option<&str>,
-    y_top_trim: f64,
-    y_bottom_trim: f64,
-) -> Result<Vec<f64>, ExtractorError> {
-    if !(0.0..=1.0).contains(&y_top_trim) {
-        return Err(ExtractorError::InvalidConfig(format!(
-            "y_top_trim must be between 0.0 and 1.0, found {}",
-            y_top_trim
-        )));
-    }
-    if !(0.0..=1.0).contains(&y_bottom_trim) {
-        return Err(ExtractorError::InvalidConfig(format!(
-            "y_bottom_trim must be between 0.0 and 1.0, found {}",
-            y_bottom_trim
-        )));
-    }
-    if y_top_trim > y_bottom_trim {
-        return Err(ExtractorError::InvalidConfig(format!(
-            "y_top_trim ({}) cannot be greater than y_bottom_trim ({})",
-            y_top_trim, y_bottom_trim
-        )));
-    }
-
-    let path_ref = pdf_path.as_ref();
-    info!(
-        "Starting layout analysis to auto-detect columns for '{}'...",
-        path_ref.display()
-    );
-
-    let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
-    let _guard = if processed_path != path_ref {
-        Some(TempFileGuard::new(processed_path.clone()))
-    } else {
-        None
-    };
-
-    let pdf = PdfDocument::open(&processed_path).map_err(|e| {
-        error!("Failed to open PDF during layout analysis: {:?}", e);
-        ExtractorError::PdfOpenError(format!("{:?}", e))
-    })?;
-
+fn detect_guides_from_doc(pdf: &PdfDocument, y_top_trim: f64, y_bottom_trim: f64) -> Vec<f64> {
     let pages = pdf.pages();
     if pages.is_empty() {
         warn!("PDF has no pages. Skipping layout analysis.");
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
     // We divide the horizontal page width into 1000 buckets (0.0 to 1.0)
@@ -385,17 +367,15 @@ pub fn detect_column_guides<P: AsRef<Path>>(
                 in_valley = true;
                 valley_start = i;
             }
-        } else {
-            if in_valley {
-                in_valley = false;
-                let valley_end = i - 1;
-                let width = valley_end - valley_start + 1;
+        } else if in_valley {
+            in_valley = false;
+            let valley_end = i - 1;
+            let width = valley_end - valley_start + 1;
 
-                // Gaps should be at least 1% of the page width (10 buckets)
-                if width >= 10 {
-                    let center = (valley_start + valley_end) as f64 / 2000.0;
-                    guides.push(center);
-                }
+            // Gaps should be at least 1% of the page width (10 buckets)
+            if width >= 10 {
+                let center = (valley_start + valley_end) as f64 / 2000.0;
+                guides.push(center);
             }
         }
     }
@@ -414,34 +394,17 @@ pub fn detect_column_guides<P: AsRef<Path>>(
         guides.len(),
         guides
     );
-    Ok(guides)
+    guides
 }
 
-/// Infer column mappings for an unknown/auto statement by scanning the first
-/// page's (header) words and assigning each column a best-guess label.
-pub fn detect_column_mappings<P: AsRef<Path>>(
-    pdf_path: P,
-    password: Option<&str>,
-    guides: &[f64],
-) -> Result<Vec<String>, ExtractorError> {
-    let path_ref = pdf_path.as_ref();
-    let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
-    let _guard = if processed_path != path_ref {
-        Some(TempFileGuard::new(processed_path.clone()))
-    } else {
-        None
-    };
-
-    let pdf = PdfDocument::open(&processed_path)
-        .map_err(|e| ExtractorError::PdfOpenError(format!("{:?}", e)))?;
+fn detect_mappings_from_doc(pdf: &PdfDocument, guides: &[f64]) -> Vec<String> {
     let pages = pdf.pages();
     if pages.is_empty() {
-        // Fall back to generic labels matching the guide count.
         let mut mappings = vec!["date".to_string()];
         for idx in 1..=guides.len() {
             mappings.push(format!("column_{}", idx));
         }
-        return Ok(mappings);
+        return mappings;
     }
 
     let page = &pages[0];
@@ -485,6 +448,11 @@ pub fn detect_column_mappings<P: AsRef<Path>>(
             "description".to_string()
         } else if t.contains("cheque") || t.contains("chq") || t.contains("instrument") {
             "chq_no".to_string()
+        } else if t.contains("dr/cr")
+            || t.contains("cr/dr")
+            || (t.contains("dr") && t.contains("cr") && !t.contains("description"))
+        {
+            "dr_cr".to_string()
         } else if t.contains("debit") || t.contains("withdrawal") || t.contains("dr") {
             "debit".to_string()
         } else if t.contains("credit") || t.contains("deposit") || t.contains("cr") {
@@ -504,12 +472,233 @@ pub fn detect_column_mappings<P: AsRef<Path>>(
         mappings.push(label);
     }
 
-    // Ensure date is present somewhere; fall back to first column if none matched.
     if !mappings.iter().any(|m| m == "date") && num_cols > 0 {
         mappings[0] = "date".to_string();
     }
 
-    Ok(mappings)
+    mappings
+}
+
+fn detect_preset_from_doc(pdf: &PdfDocument) -> Option<crate::presets::BankPreset> {
+    let pages = pdf.pages();
+    if pages.is_empty() {
+        return None;
+    }
+
+    let first_page = &pages[0];
+    let words = first_page.extract_words();
+    let full_text = words
+        .iter()
+        .map(|w| w.text.as_str())
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .to_uppercase();
+
+    if full_text.contains("HDFC BANK") || full_text.contains("HDFCBANK") {
+        Some(crate::presets::BankPreset::Hdfc)
+    } else if full_text.contains("STATE BANK OF INDIA") || full_text.contains("SBI ") {
+        Some(crate::presets::BankPreset::Sbi)
+    } else if full_text.contains("CANARA") {
+        Some(crate::presets::BankPreset::Canara)
+    } else if full_text.contains("UNION BANK") {
+        Some(crate::presets::BankPreset::Union)
+    } else if full_text.contains("UCO BANK") {
+        Some(crate::presets::BankPreset::Uco)
+    } else if full_text.contains("INDIAN BANK") || full_text.contains("ALLAHABAD") {
+        Some(crate::presets::BankPreset::Indian)
+    } else if full_text.contains("HIMACHAL PRADESH GRAMIN") || full_text.contains("HPGB") {
+        Some(crate::presets::BankPreset::Hpgb)
+    } else if full_text.contains("H P STATE CO-OP")
+        || full_text.contains("CO-OPERATIVE BANK")
+        || full_text.contains("HPSCB")
+    {
+        Some(crate::presets::BankPreset::Hpscb)
+    } else if full_text.contains("ICICI BANK") {
+        Some(crate::presets::BankPreset::Icici)
+    } else if full_text.contains("PUNJAB NATIONAL BANK") || full_text.contains("PNB ") {
+        Some(crate::presets::BankPreset::Pnb)
+    } else if full_text.contains("KOTAK MAHINDRA") || full_text.contains("KOTAK BANK") {
+        Some(crate::presets::BankPreset::Kotak)
+    } else if full_text.contains("AXIS BANK") || full_text.contains("AXISBANK") {
+        Some(crate::presets::BankPreset::Axis)
+    } else if full_text.contains("BANK OF BARODA") || full_text.contains("BARODA") {
+        Some(crate::presets::BankPreset::Bob)
+    } else if full_text.contains("YES BANK") || full_text.contains("YESBANK") {
+        Some(crate::presets::BankPreset::Yes)
+    } else if full_text.contains("IDFC FIRST") || full_text.contains("IDFC BANK") {
+        Some(crate::presets::BankPreset::Idfc)
+    } else if full_text.contains("INDUSIND") {
+        Some(crate::presets::BankPreset::Indusind)
+    } else if full_text.contains("UJJIVAN") {
+        Some(crate::presets::BankPreset::Ujjivan)
+    } else if full_text.contains("FEDERAL BANK") {
+        Some(crate::presets::BankPreset::Federal)
+    } else if full_text.contains("CENTRAL BANK OF INDIA") || full_text.contains("CBI ") {
+        Some(crate::presets::BankPreset::Cbi)
+    } else if full_text.contains("BANDHAN BANK") || full_text.contains("BANDHAN") {
+        Some(crate::presets::BankPreset::Bandhan)
+    } else if full_text.contains("RBL BANK") || full_text.contains("RATNAKAR") {
+        Some(crate::presets::BankPreset::Rbl)
+    } else if full_text.contains("PUNJAB & SIND")
+        || full_text.contains("PUNJAB AND SIND")
+        || full_text.contains("PSB ")
+    {
+        Some(crate::presets::BankPreset::Psb)
+    } else {
+        None
+    }
+}
+
+/// Performs single-pass layout detection on a PDF file, opening and decrypting the document
+/// once to detect any known bank preset, column guides, and inferred column mappings.
+pub fn detect_layout_from_file<P: AsRef<Path>>(
+    pdf_path: P,
+    password: Option<&str>,
+    y_top_trim: f64,
+    y_bottom_trim: f64,
+) -> Result<DetectedLayout, ExtractorError> {
+    if !(0.0..=1.0).contains(&y_top_trim) || y_top_trim.is_nan() {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_top_trim must be between 0.0 and 1.0, found {}",
+            y_top_trim
+        )));
+    }
+    if !(0.0..=1.0).contains(&y_bottom_trim) || y_bottom_trim.is_nan() {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_bottom_trim must be between 0.0 and 1.0, found {}",
+            y_bottom_trim
+        )));
+    }
+    if y_top_trim > y_bottom_trim {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_top_trim ({}) cannot be greater than y_bottom_trim ({})",
+            y_top_trim, y_bottom_trim
+        )));
+    }
+
+    let path_ref = pdf_path.as_ref();
+    let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
+    let _guard = if processed_path != path_ref {
+        Some(TempFileGuard::new(processed_path.clone()))
+    } else {
+        None
+    };
+
+    let pdf = PdfDocument::open(&processed_path)
+        .map_err(|e| ExtractorError::PdfOpenError(format!("{:?}", e)))?;
+
+    if let Some(preset) = detect_preset_from_doc(&pdf) {
+        let cfg = preset.config();
+        Ok(DetectedLayout {
+            preset_key: Some(preset.key().to_string()),
+            preset_name: Some(preset.name().to_string()),
+            guides: cfg.col_guides,
+            mappings: cfg.col_mappings,
+            y_tolerance: cfg.y_tolerance,
+            y_top_trim: cfg.y_top_trim,
+            y_bottom_trim: cfg.y_bottom_trim,
+        })
+    } else {
+        let guides = detect_guides_from_doc(&pdf, y_top_trim, y_bottom_trim);
+        let mappings = detect_mappings_from_doc(&pdf, &guides);
+        Ok(DetectedLayout {
+            preset_key: None,
+            preset_name: None,
+            guides,
+            mappings,
+            y_tolerance: 6.0,
+            y_top_trim,
+            y_bottom_trim,
+        })
+    }
+}
+
+/// Performs single-pass layout detection directly from PDF bytes.
+pub fn detect_layout_from_bytes(
+    pdf_bytes: &[u8],
+    password: Option<&str>,
+    y_top_trim: f64,
+    y_bottom_trim: f64,
+) -> Result<DetectedLayout, ExtractorError> {
+    let ts = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_name = format!("vp_layout_{}_{}.pdf", std::process::id(), ts);
+    let temp_path = vaultparser_temp_dir().join(temp_name);
+
+    write_temp_file(&temp_path, pdf_bytes)?;
+    let _guard = TempFileGuard::new(temp_path.clone());
+
+    detect_layout_from_file(&temp_path, password, y_top_trim, y_bottom_trim)
+}
+
+/// Automatically detect column guides by analyzing the horizontal density of text spans
+pub fn detect_column_guides<P: AsRef<Path>>(
+    pdf_path: P,
+    password: Option<&str>,
+    y_top_trim: f64,
+    y_bottom_trim: f64,
+) -> Result<Vec<f64>, ExtractorError> {
+    if !(0.0..=1.0).contains(&y_top_trim) {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_top_trim must be between 0.0 and 1.0, found {}",
+            y_top_trim
+        )));
+    }
+    if !(0.0..=1.0).contains(&y_bottom_trim) {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_bottom_trim must be between 0.0 and 1.0, found {}",
+            y_bottom_trim
+        )));
+    }
+    if y_top_trim > y_bottom_trim {
+        return Err(ExtractorError::InvalidConfig(format!(
+            "y_top_trim ({}) cannot be greater than y_bottom_trim ({})",
+            y_top_trim, y_bottom_trim
+        )));
+    }
+
+    let path_ref = pdf_path.as_ref();
+    info!(
+        "Starting layout analysis to auto-detect columns for '{}'...",
+        path_ref.display()
+    );
+
+    let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
+    let _guard = if processed_path != path_ref {
+        Some(TempFileGuard::new(processed_path.clone()))
+    } else {
+        None
+    };
+
+    let pdf = PdfDocument::open(&processed_path).map_err(|e| {
+        error!("Failed to open PDF during layout analysis: {:?}", e);
+        ExtractorError::PdfOpenError(format!("{:?}", e))
+    })?;
+
+    Ok(detect_guides_from_doc(&pdf, y_top_trim, y_bottom_trim))
+}
+
+/// Infer column mappings for an unknown/auto statement by scanning the first
+/// page's (header) words and assigning each column a best-guess label.
+pub fn detect_column_mappings<P: AsRef<Path>>(
+    pdf_path: P,
+    password: Option<&str>,
+    guides: &[f64],
+) -> Result<Vec<String>, ExtractorError> {
+    let path_ref = pdf_path.as_ref();
+    let processed_path = decrypt_pdf_if_needed(path_ref, password)?;
+    let _guard = if processed_path != path_ref {
+        Some(TempFileGuard::new(processed_path.clone()))
+    } else {
+        None
+    };
+
+    let pdf = PdfDocument::open(&processed_path)
+        .map_err(|e| ExtractorError::PdfOpenError(format!("{:?}", e)))?;
+
+    Ok(detect_mappings_from_doc(&pdf, guides))
 }
 
 /// Auto-detect bank preset from a PDF file path by scanning its text content.
@@ -528,73 +717,7 @@ pub fn detect_preset_from_file<P: AsRef<Path>>(
     let pdf = PdfDocument::open(&processed_path)
         .map_err(|e| ExtractorError::PdfOpenError(format!("{:?}", e)))?;
 
-    let pages = pdf.pages();
-    if pages.is_empty() {
-        return Ok(None);
-    }
-
-    let first_page = &pages[0];
-    let words = first_page.extract_words();
-    let full_text = words
-        .iter()
-        .map(|w| w.text.as_str())
-        .collect::<Vec<&str>>()
-        .join(" ")
-        .to_uppercase();
-
-    if full_text.contains("HDFC BANK") || full_text.contains("HDFCBANK") {
-        Ok(Some(crate::presets::BankPreset::Hdfc))
-    } else if full_text.contains("STATE BANK OF INDIA") || full_text.contains("SBI ") {
-        Ok(Some(crate::presets::BankPreset::Sbi))
-    } else if full_text.contains("CANARA") {
-        Ok(Some(crate::presets::BankPreset::Canara))
-    } else if full_text.contains("UNION BANK") {
-        Ok(Some(crate::presets::BankPreset::Union))
-    } else if full_text.contains("UCO BANK") {
-        Ok(Some(crate::presets::BankPreset::Uco))
-    } else if full_text.contains("INDIAN BANK") || full_text.contains("ALLAHABAD") {
-        Ok(Some(crate::presets::BankPreset::Indian))
-    } else if full_text.contains("HIMACHAL PRADESH GRAMIN") || full_text.contains("HPGB") {
-        Ok(Some(crate::presets::BankPreset::Hpgb))
-    } else if full_text.contains("H P STATE CO-OP")
-        || full_text.contains("CO-OPERATIVE BANK")
-        || full_text.contains("HPSCB")
-    {
-        Ok(Some(crate::presets::BankPreset::Hpscb))
-    } else if full_text.contains("ICICI BANK") {
-        Ok(Some(crate::presets::BankPreset::Icici))
-    } else if full_text.contains("PUNJAB NATIONAL BANK") || full_text.contains("PNB ") {
-        Ok(Some(crate::presets::BankPreset::Pnb))
-    } else if full_text.contains("KOTAK MAHINDRA") || full_text.contains("KOTAK BANK") {
-        Ok(Some(crate::presets::BankPreset::Kotak))
-    } else if full_text.contains("AXIS BANK") || full_text.contains("AXISBANK") {
-        Ok(Some(crate::presets::BankPreset::Axis))
-    } else if full_text.contains("BANK OF BARODA") || full_text.contains("BARODA") {
-        Ok(Some(crate::presets::BankPreset::Bob))
-    } else if full_text.contains("YES BANK") || full_text.contains("YESBANK") {
-        Ok(Some(crate::presets::BankPreset::Yes))
-    } else if full_text.contains("IDFC FIRST") || full_text.contains("IDFC BANK") {
-        Ok(Some(crate::presets::BankPreset::Idfc))
-    } else if full_text.contains("INDUSIND") {
-        Ok(Some(crate::presets::BankPreset::Indusind))
-    } else if full_text.contains("UJJIVAN") {
-        Ok(Some(crate::presets::BankPreset::Ujjivan))
-    } else if full_text.contains("FEDERAL BANK") {
-        Ok(Some(crate::presets::BankPreset::Federal))
-    } else if full_text.contains("CENTRAL BANK OF INDIA") || full_text.contains("CBI ") {
-        Ok(Some(crate::presets::BankPreset::Cbi))
-    } else if full_text.contains("BANDHAN BANK") || full_text.contains("BANDHAN") {
-        Ok(Some(crate::presets::BankPreset::Bandhan))
-    } else if full_text.contains("RBL BANK") || full_text.contains("RATNAKAR") {
-        Ok(Some(crate::presets::BankPreset::Rbl))
-    } else if full_text.contains("PUNJAB & SIND")
-        || full_text.contains("PUNJAB AND SIND")
-        || full_text.contains("PSB ")
-    {
-        Ok(Some(crate::presets::BankPreset::Psb))
-    } else {
-        Ok(None)
-    }
+    Ok(detect_preset_from_doc(&pdf))
 }
 
 fn parse_date_naive(s: &str) -> Option<chrono::NaiveDate> {
@@ -715,8 +838,12 @@ pub fn extract_from_file<P: AsRef<Path>>(
     let mut all_rows: Vec<PageRow> = Vec::new();
     let pages = pdf.pages();
 
-    let total_words: usize = pages.iter().map(|p| p.extract_words().len()).sum();
-    if !pages.is_empty() && total_words == 0 {
+    let extracted_pages: Vec<_> = pages
+        .iter()
+        .map(|p| (p.width, p.height, p.extract_words()))
+        .collect();
+    let total_words: usize = extracted_pages.iter().map(|(_, _, w)| w.len()).sum();
+    if !extracted_pages.is_empty() && total_words == 0 {
         return Err(ExtractorError::ScannedPdf(
             "No extractable text found in this PDF. The document appears to be a scanned image or photograph."
                 .to_string(),
@@ -735,14 +862,11 @@ pub fn extract_from_file<P: AsRef<Path>>(
         );
     }
 
-    for (page_idx, page) in pages.iter().enumerate() {
-        let width = page.width;
-        let height = page.height;
+    for (page_idx, (width, height, raw_words)) in extracted_pages.into_iter().enumerate() {
         let top_px = config.y_top_trim * height;
         let bottom_px = config.y_bottom_trim * height;
 
-        let mut items: Vec<WordItem> = page
-            .extract_words()
+        let mut items: Vec<WordItem> = raw_words
             .into_iter()
             .filter(|w| w.top >= top_px && w.top <= bottom_px)
             .map(|w| WordItem {
@@ -792,6 +916,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
                     row.max_y = row.max_y.max(item.y);
                     let total_y: f64 = row.items.iter().map(|it| it.y).sum();
                     row.y = total_y / row.items.len() as f64;
+                    row.anchor_y = row.y;
                 }
                 None => grouped_rows.push(GroupedRow {
                     anchor_y: item.y,
@@ -990,7 +1115,7 @@ pub fn extract_from_file<P: AsRef<Path>>(
                 && !has_date
                 && !has_amount;
 
-            !(hits >= 3 && !has_date && !has_amount) && !is_footer_like
+            !(hits >= 4 && !has_date && !has_amount) && !is_footer_like
         });
 
         // Standardize date formats using chrono NaiveDate parser
@@ -1183,62 +1308,44 @@ pub fn extract_from_file<P: AsRef<Path>>(
         }
     }
 
-    // Lightweight balance continuity audit: surfaces potential clustering or
-    // column-shift issues as warnings without changing extracted values.
-    if let (Some(b_idx), Some(d_idx), Some(c_idx)) = (
-        config.col_mappings.iter().position(|m| m == "balance"),
-        config.col_mappings.iter().position(|m| m == "debit"),
-        config.col_mappings.iter().position(|m| m == "credit"),
-    ) {
-        let mut previous_balance: Option<f64> = None;
-        for row in &all_rows {
-            let current = crate::exporter::parse_amount(
-                row.cells.get(b_idx).map(String::as_str).unwrap_or(""),
-            );
-            let debit = crate::exporter::parse_amount(
-                row.cells.get(d_idx).map(String::as_str).unwrap_or(""),
-            )
-            .unwrap_or(0.0);
-            let credit = crate::exporter::parse_amount(
-                row.cells.get(c_idx).map(String::as_str).unwrap_or(""),
-            )
-            .unwrap_or(0.0);
-
-            if let Some(current_balance) = current {
-                if let Some(prev) = previous_balance
-                    && (current_balance - prev - (credit - debit)).abs() > 0.015
-                {
-                    warn!(
-                        "Balance continuity mismatch on page {} ({}): expected {:.2}, found {:.2}",
-                        row.page,
-                        row.id,
-                        prev + credit - debit,
-                        current_balance
-                    );
-                }
-                previous_balance = Some(current_balance);
-            }
-        }
-    }
-
     // Date-order and duplicate-row diagnostics (non-fatal).
     if let Some(d_idx) = config.col_mappings.iter().position(|m| m == "date") {
-        let mut previous: Option<chrono::NaiveDate> = None;
-        for row in &all_rows {
-            if let Some(current) = row
-                .cells
-                .get(d_idx)
-                .and_then(|c| crate::config::parse_date(c.trim()))
-            {
-                if let Some(prev_date) = previous
-                    && current < prev_date
-                {
-                    warn!(
-                        "Transaction date out of sequence on page {} ({}): {} < {}",
-                        row.page, row.id, current, prev_date
-                    );
-                }
-                previous = Some(current);
+        let parsed_dates: Vec<(usize, chrono::NaiveDate)> = all_rows
+            .iter()
+            .enumerate()
+            .filter_map(|(i, row)| {
+                let dt = row
+                    .cells
+                    .get(d_idx)
+                    .and_then(|c| crate::config::parse_date(c.trim()))?;
+                Some((i, dt))
+            })
+            .collect();
+
+        let mut asc_steps = 0usize;
+        let mut desc_steps = 0usize;
+        for w in parsed_dates.windows(2) {
+            if w[1].1 > w[0].1 {
+                asc_steps += 1;
+            } else if w[1].1 < w[0].1 {
+                desc_steps += 1;
+            }
+        }
+        let is_reverse_dates = desc_steps > asc_steps;
+
+        for w in parsed_dates.windows(2) {
+            let (prev_date, curr_idx, current) = (w[0].1, w[1].0, w[1].1);
+            let out_of_seq = if is_reverse_dates {
+                current > prev_date
+            } else {
+                current < prev_date
+            };
+            if out_of_seq {
+                let row = &all_rows[curr_idx];
+                warn!(
+                    "Transaction date out of sequence on page {} ({}): {} vs previous {}",
+                    row.page, row.id, current, prev_date
+                );
             }
         }
     }
@@ -1257,16 +1364,29 @@ pub fn extract_from_file<P: AsRef<Path>>(
         }
     }
 
-    info!(
-        "Successfully extracted {} total transaction rows.",
-        all_rows.len()
-    );
-
-    Ok(ExtractedTable {
+    let table = ExtractedTable {
         headers,
         active_indices,
         rows: all_rows,
-    })
+    };
+
+    // Unified balance continuity audit (supports chronological, reverse-chronological,
+    // dual-column Debit/Credit, and single-column Amount + Dr/Cr layouts).
+    let rec = crate::exporter::reconcile_running_balance(&table);
+    for d in &rec.discrepancies {
+        let page = table.rows.get(d.row_index).map(|r| r.page).unwrap_or(1);
+        warn!(
+            "Balance continuity mismatch on page {} ({}): expected {:.2}, found {:.2}",
+            page, d.row_id, d.expected_balance, d.reported_balance
+        );
+    }
+
+    info!(
+        "Successfully extracted {} total transaction rows.",
+        table.rows.len()
+    );
+
+    Ok(table)
 }
 
 /// Extract tabular data directly from PDF bytes
@@ -1282,9 +1402,9 @@ pub fn extract_from_bytes(
         .unwrap_or(0);
     let pid = std::process::id();
     let temp_name = format!("vp_bytes_{}_{}.pdf", pid, ts);
-    let temp_path = std::env::temp_dir().join(temp_name);
+    let temp_path = vaultparser_temp_dir().join(temp_name);
 
-    fs::write(&temp_path, pdf_bytes)?;
+    write_temp_file(&temp_path, pdf_bytes)?;
     let _guard = TempFileGuard::new(temp_path.clone());
 
     extract_from_file(&temp_path, config)
@@ -1302,9 +1422,9 @@ pub fn detect_column_guides_from_bytes(
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let temp_name = format!("vp_guides_{}_{}.pdf", std::process::id(), ts);
-    let temp_path = std::env::temp_dir().join(temp_name);
+    let temp_path = vaultparser_temp_dir().join(temp_name);
 
-    fs::write(&temp_path, pdf_bytes)?;
+    write_temp_file(&temp_path, pdf_bytes)?;
     let _guard = TempFileGuard::new(temp_path.clone());
 
     detect_column_guides(&temp_path, password, y_top_trim, y_bottom_trim)
@@ -1320,9 +1440,9 @@ pub fn detect_preset_from_bytes(
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let temp_name = format!("vp_preset_{}_{}.pdf", std::process::id(), ts);
-    let temp_path = std::env::temp_dir().join(temp_name);
+    let temp_path = vaultparser_temp_dir().join(temp_name);
 
-    fs::write(&temp_path, pdf_bytes)?;
+    write_temp_file(&temp_path, pdf_bytes)?;
     let _guard = TempFileGuard::new(temp_path.clone());
 
     detect_preset_from_file(&temp_path, password)
@@ -1339,9 +1459,9 @@ pub fn detect_column_mappings_from_bytes(
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let temp_name = format!("vp_maps_{}_{}.pdf", std::process::id(), ts);
-    let temp_path = std::env::temp_dir().join(temp_name);
+    let temp_path = vaultparser_temp_dir().join(temp_name);
 
-    fs::write(&temp_path, pdf_bytes)?;
+    write_temp_file(&temp_path, pdf_bytes)?;
     let _guard = TempFileGuard::new(temp_path.clone());
 
     detect_column_mappings(&temp_path, password, guides)

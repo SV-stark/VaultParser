@@ -145,6 +145,9 @@ let skipHeaderRows = 0;
 let skipFooterRows = 0;
 let filterDate = true;
 let filterAmount = false;
+let categorize = false;
+let fromDate = '';
+let toDate = '';
 
 // Password forwarded to the native Rust backend for encrypted statements
 let pdfPassword = '';
@@ -167,6 +170,7 @@ const fileLoadedStage = document.getElementById('file-loaded-stage');
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const btnLoadSample = document.getElementById('btn-load-sample');
+const pdfPasswordInput = document.getElementById('pdf-password-input');
 const fileInfoName = document.getElementById('file-info-name');
 const fileInfoSize = document.getElementById('file-info-size');
 const btnRemoveFile = document.getElementById('btn-remove-file');
@@ -178,6 +182,9 @@ const totalPageNum = document.getElementById('total-page-num');
 
 const presetsCard = document.getElementById('presets-card');
 const presetSelector = document.getElementById('preset-selector');
+const btnSavePreset = document.getElementById('btn-save-preset');
+const btnLoadPreset = document.getElementById('btn-load-preset');
+const presetFileInput = document.getElementById('preset-file-input');
 
 const settingsCard = document.getElementById('settings-card');
 const yToleranceInput = document.getElementById('y-tolerance-input');
@@ -187,10 +194,14 @@ const skipHeaderInput = document.getElementById('skip-header-input');
 const skipFooterInput = document.getElementById('skip-footer-input');
 const filterDateInput = document.getElementById('filter-date-input');
 const filterAmountInput = document.getElementById('filter-amount-input');
+const categorizeInput = document.getElementById('categorize-input');
+const fromDateInput = document.getElementById('from-date-input');
+const toDateInput = document.getElementById('to-date-input');
 
 const toggleMergeLbl = document.getElementById('toggle-merge-lbl');
 const toggleFilterDateLbl = document.getElementById('toggle-filter-date-lbl');
 const toggleFilterAmountLbl = document.getElementById('toggle-filter-amount-lbl');
+const toggleCategorizeLbl = document.getElementById('toggle-categorize-lbl');
 
 const mappingsCard = document.getElementById('mappings-card');
 const mappingsList = document.getElementById('mappings-list');
@@ -211,6 +222,7 @@ const btnCopyTsv = document.getElementById('btn-copy-tsv');
 const btnExportCsv = document.getElementById('btn-export-csv');
 const btnExportTsv = document.getElementById('btn-export-tsv');
 const btnExportQif = document.getElementById('btn-export-qif');
+const btnExportJson = document.getElementById('btn-export-json');
 const btnExportXlsx = document.getElementById('btn-export-xlsx');
 const previewTable = document.getElementById('preview-table');
 const tableHeadersRow = document.getElementById('table-headers-row');
@@ -234,10 +246,34 @@ async function syncPresetsFromBackend() {
       if (p && p.key && PRESETS[p.key] && Array.isArray(p.guides) && Array.isArray(p.mappings)) {
         PRESETS[p.key].guides = p.guides;
         PRESETS[p.key].mappings = p.mappings;
+        if (typeof p.y_tolerance === 'number') PRESETS[p.key].y_tolerance = p.y_tolerance;
+        if (typeof p.y_top_trim === 'number') PRESETS[p.key].y_top_trim = p.y_top_trim;
+        if (typeof p.y_bottom_trim === 'number') PRESETS[p.key].y_bottom_trim = p.y_bottom_trim;
       }
     }
   } catch (err) {
     console.warn('Could not sync presets from backend; using bundled values.', err);
+  }
+}
+
+function applyPresetTuning(preset) {
+  if (!preset) return;
+  if (typeof preset.y_tolerance === 'number') {
+    yTolerance = Math.round(preset.y_tolerance);
+    if (yToleranceInput) yToleranceInput.value = yTolerance;
+    if (yToleranceVal) yToleranceVal.textContent = yTolerance + 'px';
+  }
+  if (typeof preset.y_top_trim === 'number') {
+    topCropPct = Math.round(preset.y_top_trim * 100);
+    yTopTrim = Math.round((topCropPct / 100) * viewportHeight);
+    const topInput = document.getElementById('top-trim-input');
+    if (topInput) topInput.value = topCropPct;
+  }
+  if (typeof preset.y_bottom_trim === 'number') {
+    bottomCropPct = Math.round(preset.y_bottom_trim * 100);
+    yBottomTrim = Math.round((bottomCropPct / 100) * viewportHeight);
+    const bottomInput = document.getElementById('bottom-trim-input');
+    if (bottomInput) bottomInput.value = bottomCropPct;
   }
 }
 
@@ -336,6 +372,44 @@ function bindEvents() {
     filterAmountInput.dispatchEvent(new Event('change'));
   });
 
+  if (categorizeInput && toggleCategorizeLbl) {
+    categorizeInput.addEventListener('change', (e) => {
+      categorize = e.target.checked;
+      triggerConversion();
+    });
+    toggleCategorizeLbl.addEventListener('click', () => {
+      categorizeInput.checked = !categorizeInput.checked;
+      categorizeInput.dispatchEvent(new Event('change'));
+    });
+  }
+
+  if (fromDateInput) {
+    fromDateInput.addEventListener('change', (e) => {
+      fromDate = (e.target.value || '').trim();
+      triggerConversion();
+    });
+  }
+  if (toDateInput) {
+    toDateInput.addEventListener('change', (e) => {
+      toDate = (e.target.value || '').trim();
+      triggerConversion();
+    });
+  }
+  if (pdfPasswordInput) {
+    pdfPasswordInput.addEventListener('change', (e) => {
+      pdfPassword = e.target.value || '';
+      if (file) triggerConversion();
+    });
+  }
+
+  if (btnSavePreset) {
+    btnSavePreset.addEventListener('click', saveCustomPresetJson);
+  }
+  if (btnLoadPreset && presetFileInput) {
+    btnLoadPreset.addEventListener('click', () => presetFileInput.click());
+    presetFileInput.addEventListener('change', handleLoadPresetFile);
+  }
+
   // Overlay interactive events for draggable guides
   interactiveOverlay.addEventListener('mousemove', handleOverlayMouseMove);
   interactiveOverlay.addEventListener('mouseup', handleOverlayMouseUp);
@@ -358,6 +432,9 @@ function bindEvents() {
         formData.append('skip_footer_rows', skipFooterRows);
         formData.append('filter_only_date', filterDate);
         formData.append('filter_only_amount', filterAmount);
+        formData.append('categorize', categorize);
+        if (fromDate) formData.append('from_date', fromDate);
+        if (toDate) formData.append('to_date', toDate);
         formData.append('format', 'tsv');
         formData.append('manual_edits', JSON.stringify(manualEdits));
         formData.append('deleted_rows', JSON.stringify(deletedRows));
@@ -382,6 +459,7 @@ function bindEvents() {
   btnExportCsv.addEventListener('click', () => handleBulkExport('csv'));
   if (btnExportTsv) btnExportTsv.addEventListener('click', () => handleBulkExport('tsv'));
   if (btnExportQif) btnExportQif.addEventListener('click', () => handleBulkExport('qif'));
+  if (btnExportJson) btnExportJson.addEventListener('click', () => handleBulkExport('json_export'));
   btnExportXlsx.addEventListener('click', () => handleBulkExport('xlsx'));
 
   if (tableSearchInput) {
@@ -444,7 +522,7 @@ function hideLoading() {
   loadingCard.classList.add('hidden');
 }
 
-// Call native Rust /api/detect endpoint to auto-detect preset and guides
+// Call native Rust /api/detect endpoint to auto-detect preset, guides, and mappings
 async function detectLayoutFromBackend() {
   if (!file) return null;
   try {
@@ -452,6 +530,7 @@ async function detectLayoutFromBackend() {
     formData.append('file', file);
     formData.append('y_top_trim', (topCropPct / 100).toFixed(4));
     formData.append('y_bottom_trim', (bottomCropPct / 100).toFixed(4));
+    if (pdfPassword) formData.append('password', pdfPassword);
     const res = await fetch('/api/detect', {
       method: 'POST',
       body: formData
@@ -463,6 +542,57 @@ async function detectLayoutFromBackend() {
     console.warn('Backend auto-detect endpoint failed, falling back to client JS:', err);
   }
   return null;
+}
+
+function saveCustomPresetJson() {
+  const relGuides = colGuides.map(g => Number((g / viewportWidth).toFixed(4)));
+  const presetObj = {
+    col_guides: relGuides,
+    col_mappings: colMappings,
+    y_tolerance: yTolerance,
+    merge_multi_line: mergeDescriptions,
+    skip_header_rows: skipHeaderRows,
+    skip_footer_rows: skipFooterRows,
+    filter_only_date: filterDate,
+    filter_only_amount: filterAmount,
+    y_top_trim: Number((topCropPct / 100).toFixed(4)),
+    y_bottom_trim: Number((bottomCropPct / 100).toFixed(4)),
+    categorize: categorize
+  };
+  const blob = new Blob([JSON.stringify(presetObj, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute('download', 'vaultparser_preset.json');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function handleLoadPresetFile(e) {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const cfg = JSON.parse(ev.target.result);
+      if (Array.isArray(cfg.col_guides)) {
+        colGuides = cfg.col_guides.map(g => Math.round(Number(g) * viewportWidth));
+      }
+      if (Array.isArray(cfg.col_mappings)) {
+        colMappings = cfg.col_mappings.map(String);
+      }
+      applyPresetTuning(cfg);
+      selectedPreset = 'custom';
+      presetSelector.value = 'custom';
+      drawInteractiveOverlay();
+      triggerConversion();
+    } catch (err) {
+      alert('Invalid preset JSON file: ' + err.message);
+    } finally {
+      presetFileInput.value = '';
+    }
+  };
+  reader.readAsText(f);
 }
 
 // Fetch and render local HDFC sample statement
@@ -575,9 +705,15 @@ async function renderPDFPage(pageNum) {
         const preset = PRESETS[backendResult.preset];
         colGuides = preset.guides.map(p => Math.round(p * viewportWidth));
         colMappings = [...preset.mappings];
+        applyPresetTuning(preset);
       } else if (backendResult && backendResult.guides && backendResult.guides.length > 0) {
         colGuides = backendResult.guides.map(g => Math.round(g * viewportWidth));
-        adjustMappings(colGuides.length + 1);
+        if (Array.isArray(backendResult.mappings) && backendResult.mappings.length === colGuides.length + 1) {
+          colMappings = [...backendResult.mappings];
+        } else {
+          adjustMappings(colGuides.length + 1);
+        }
+        applyPresetTuning(backendResult);
       } else {
         // Fallback to client-side keyword matching
         const fullText = textItems.map(it => it.str).join(' ').toUpperCase();
@@ -715,6 +851,7 @@ function handlePresetSelection(presetKey) {
     const preset = PRESETS[presetKey];
     colGuides = preset.guides.map(p => Math.round(p * viewportWidth));
     colMappings = [...preset.mappings];
+    applyPresetTuning(preset);
   }
   
   drawInteractiveOverlay();
@@ -844,6 +981,7 @@ function renderMappingsControls() {
       { val: 'reference', label: 'Reference' },
       { val: 'chq_no', label: 'Cheque / Ref No.' },
       { val: 'amount', label: 'Amount (Combined)' },
+      { val: 'dr_cr', label: 'Dr / Cr Indicator' },
       { val: 'debit', label: 'Withdrawals / Debit' },
       { val: 'credit', label: 'Deposits / Credit' },
       { val: 'balance', label: 'Account Balance' }
@@ -974,6 +1112,9 @@ async function triggerConversion() {
   formData.append('skip_footer_rows', skipFooterRows);
   formData.append('filter_only_date', filterDate);
   formData.append('filter_only_amount', filterAmount);
+  formData.append('categorize', categorize);
+  if (fromDate) formData.append('from_date', fromDate);
+  if (toDate) formData.append('to_date', toDate);
   formData.append('manual_edits', JSON.stringify(manualEdits));
   formData.append('deleted_rows', JSON.stringify(deletedRows));
   formData.append('y_top_trim', (topCropPct / 100).toFixed(4));
@@ -1018,6 +1159,11 @@ function renderPreviewTable(data) {
     const type = colMappings[idx] || 'skip';
     th.innerHTML = `Col ${idx + 1}<span style="display: block; font-size: 0.65rem; color: ${type === 'skip' ? 'var(--text-muted)' : 'var(--secondary)'}; font-weight: normal; text-transform: capitalize; margin-top: 2px;">(${type})</span>`;
     tableHeadersRow.appendChild(th);
+  }
+  if (categorize) {
+    const thCat = document.createElement('th');
+    thCat.innerHTML = `Category<span style="display: block; font-size: 0.65rem; color: var(--secondary); font-weight: normal; margin-top: 2px;">(auto)</span>`;
+    tableHeadersRow.appendChild(thCat);
   }
   
   // Show all rows across all pages (page nav only moves the canvas view)
@@ -1173,6 +1319,9 @@ async function handleBulkExport(format) {
   formData.append('skip_footer_rows', skipFooterRows);
   formData.append('filter_only_date', filterDate);
   formData.append('filter_only_amount', filterAmount);
+  formData.append('categorize', categorize);
+  if (fromDate) formData.append('from_date', fromDate);
+  if (toDate) formData.append('to_date', toDate);
   formData.append('manual_edits', JSON.stringify(manualEdits));
   formData.append('deleted_rows', JSON.stringify(deletedRows));
   formData.append('y_top_trim', (topCropPct / 100).toFixed(4));
@@ -1202,6 +1351,9 @@ async function handleBulkExport(format) {
     } else if (format === 'qif') {
       ext = 'qif';
       mime = 'application/x-qif';
+    } else if (format === 'json_export') {
+      ext = 'json';
+      mime = 'application/json';
     }
       
     const downloadBlob = new Blob([blob], { type: mime });
